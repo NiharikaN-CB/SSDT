@@ -5,6 +5,8 @@
   align-items: center;
   padding: 0 var(--section-padding);
   border-bottom: 1px solid var(--outline);
+  background-color: var(--background);
+  transition: background-color 0.3s, border-color 0.3s;
 
   .logo-container {
     display: flex;
@@ -21,7 +23,15 @@
       font-family: var(--font-mono);
       font-weight: 600;
       margin: 0;
+      color: var(--foreground);
+      transition: color 0.3s;
     }
+  }
+
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
   }
 
   .github-link {

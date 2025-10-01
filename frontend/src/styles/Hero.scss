@@ -44,7 +44,7 @@
       border: 1px solid var(--outline);
       border-radius: 8px;
       padding: 0.5rem;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, background-color 0.3s;
 
       &:focus-within {
         border-color: var(--accent);

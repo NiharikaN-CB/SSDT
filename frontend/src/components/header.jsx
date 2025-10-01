@@ -1,5 +1,6 @@
 import React from 'react';
 import { FiGithub } from 'react-icons/fi';
+import ThemeToggle from './ThemeToggle'; // Import the toggle
 import '../styles/Header.scss';
 import logo from '../assets/logo.svg';
 
@@ -10,15 +11,18 @@ const Header = () => {
         <img src={logo} alt="WebCheck Logo" className="logo" />
         <h1>WebCheck</h1>
       </div>
-      <a
-        href="https://github.com/lissy93/web-check"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="github-link"
-      >
-        <FiGithub />
-        <span>Source</span>
-      </a>
+      <div className="header-controls"> {/* Add a wrapper div */}
+        <ThemeToggle /> {/* Add the toggle component */}
+        <a
+          href="https://github.com/lissy93/web-check"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="github-link"
+        >
+          <FiGithub />
+          <span>Source</span>
+        </a>
+      </div>
     </header>
   );
 };
