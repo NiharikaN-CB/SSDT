@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import '../styles/landinghero.css';
 
 const particlesArray = Array.from({ length: 50 }).map(() => ({
   id: Math.random(),

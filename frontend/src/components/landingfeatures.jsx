@@ -1,5 +1,4 @@
 import React from 'react';
-import '../styles/landingfeatures.css';
 
 const LandingFeatures = () => {
   return (

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import '../styles/landingheader.css';
+import '../styles/index.css';
 
 const LandingHeader = () => {
   // 1. State is now for dark mode, defaulting to false (light mode)
