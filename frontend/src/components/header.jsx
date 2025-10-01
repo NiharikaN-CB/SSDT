@@ -8,13 +8,13 @@ const Header = () => {
   return (
     <header className="header-container">
       <div className="logo-container">
-        <img src={logo} alt="WebCheck Logo" className="logo" />
-        <h1>WebCheck</h1>
+        <img src={logo} alt="SSDT Logo" className="logo" />
+        <h1>SSDT</h1>
       </div>
       <div className="header-controls"> {/* Add a wrapper div */}
         <ThemeToggle /> {/* Add the toggle component */}
         <a
-          href="https://github.com/lissy93/web-check"
+          href="https://github.com/NiharikaN-CB/SSDT"
           target="_blank"
           rel="noopener noreferrer"
           className="github-link"

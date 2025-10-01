@@ -1,10 +1,6 @@
-# TODO: Implement Light/Dark Mode Toggle
-
-- [x] Create ThemeContext.js in src/context/
-- [x] Update src/index.js to wrap App with ThemeProvider
-- [x] Create ThemeToggle.jsx in src/components/
-- [ ] Create ThemeToggle.scss in src/styles/
-- [ ] Update Header.jsx to include ThemeToggle component
-- [ ] Update index.css with theme-aware variables
-- [ ] Update Header.scss to use CSS variables and style header-controls
-- [ ] Update Hero.scss to use CSS variables
+-
+ [x] Update the href attribute in frontend/src/components/Header.jsx from "https://github.com/lissy93/web-check" to "https://github.com/NiharikaN-CB/SSDT"
+- [x] Change h1 in Header.jsx from "WebCheck" to "SSDT"
+- [x] Change alt text in Header.jsx from "WebCheck Logo" to "SSDT Logo"
+- [x] Change title in index.html from "Web Check" to "SSDT"
+- [x] Change name in manifest.json from "Create React App Sample" to "SSDT"
