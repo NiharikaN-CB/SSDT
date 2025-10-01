@@ -1,0 +1,81 @@
+.hero-container {
+  padding: var(--section-padding);
+  text-align: center;
+  width: 100%;
+  max-width: var(--max-width);
+  margin: 0 auto;
+
+  .hero-content {
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  .hero-title {
+    font-size: 3rem;
+    font-weight: 800;
+    margin: 0 0 1rem 0;
+    line-height: 1.2;
+    .highlight {
+      color: var(--accent);
+    }
+  }
+
+  .hero-subtitle {
+    font-size: 1.25rem;
+    color: var(--foreground-darker);
+    margin: 0 0 2.5rem 0;
+    .highlight {
+      color: var(--accent-light);
+    }
+  }
+
+  .analyze-form {
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-family: var(--font-mono);
+      color: var(--foreground-darker);
+    }
+
+    .input-wrapper {
+      display: flex;
+      gap: 0.5rem;
+      background: var(--background-lighter);
+      border: 1px solid var(--outline);
+      border-radius: 8px;
+      padding: 0.5rem;
+      transition: border-color 0.2s;
+
+      &:focus-within {
+        border-color: var(--accent);
+      }
+
+      input {
+        flex-grow: 1;
+        background: transparent;
+        border: none;
+        outline: none;
+        color: var(--foreground);
+        font-size: 1.1rem;
+        padding: 0.5rem;
+        font-family: var(--font-mono);
+      }
+
+      button {
+        background: var(--accent);
+        border: none;
+        color: var(--background);
+        padding: 0.75rem 1.5rem;
+        border-radius: 5px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.2s;
+
+        &:hover {
+          background: var(--accent-dark);
+        }
+      }
+    }
+  }
+}

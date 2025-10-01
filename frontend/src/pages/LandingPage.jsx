@@ -1,25 +1,16 @@
 import React from 'react';
-import LandingHeader from '../components/landingheader';
-import LandingHero from '../components/landinghero';
-import LandingFeatures from '../components/landingfeatures';
+import Header from '../components/Header';
+import Hero from '../components/Hero';
+import '../styles/LandingPage.scss';
 
 const LandingPage = () => {
   return (
-    <>
-      <LandingHeader />
+    <div className="landing-page">
+      <Header />
       <main>
-        <LandingHero />
-        <LandingFeatures />
+        <Hero />
       </main>
-      <footer className="footer">
-        <div className="footer-links">
-          <a href="/privacy-policy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
-          <a href="/terms-of-service" target="_blank" rel="noopener noreferrer">Terms of Service</a>
-          <a href="/contact" target="_blank" rel="noopener noreferrer">Contact</a>
-        </div>
-        <p>&copy; 2023 SecureScan. All rights reserved.</p>
-      </footer>
-    </>
+    </div>
   );
 };
 

@@ -1,37 +1,38 @@
-/* Import the Poppins font from Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
-
-/* Default theme (Light Mode) */
 :root {
-  --background-color: #f8f9fa;
-  --text-color: #212529;
-  --primary-accent: #007bff;
-  --primary-accent-hover: #0056b3;
-  --border-color: #dee2e6;
-  --card-background: #ffffff;
-  --header-background: rgba(255, 255, 255, 0.8);
+  --background: #0a0a0a;
+  --background-light: #111111;
+  --background-lighter: #1d1d1d;
+  --foreground: #f8f8f8;
+  --foreground-darker: #c7c7c7;
+  --outline: #2d2d2d;
+  --outline-darker: #222222;
+  --accent: #00b0c6;
+  --accent-light: #9adeff;
+  --accent-dark: #00768e;
+  --font-mono: 'Inconsolata', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+  --header-height: 4rem;
+  --section-padding: 2rem;
+  --max-width: 1200px;
 }
 
-/* Dark Mode theme variables */
-body.dark-mode {
-  --background-color: #121212;
-  --text-color: #f8f9fa;
-  --border-color: #343a40;
-  --card-background: #1e1e1e;
-  --header-background: rgba(18, 18, 18, 0.8);
-}
-
-/* Basic reset and font setup */
-* {
-  box-sizing: border-box;
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
   margin: 0;
   padding: 0;
 }
 
-body {
-  font-family: 'Poppins', sans-serif;
-  background-color: var(--background-color);
-  color: var(--text-color);
-  overflow-x: hidden;
-  transition: background-color 0.3s, color 0.3s; /* Smooth theme transition */
+* {
+  box-sizing: border-box;
+}
+
+a {
+  color: var(--accent-light);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
 }
