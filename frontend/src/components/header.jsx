@@ -1,6 +1,9 @@
+// File path: frontend/src/components/header.jsx
+
 import React from 'react';
+import { Link } from 'react-router-dom'; // Import Link
 import { FiGithub } from 'react-icons/fi';
-import ThemeToggle from './ThemeToggle'; // Import the toggle
+import ThemeToggle from './ThemeToggle';
 import '../styles/Header.scss';
 import logo from '../assets/logo.svg';
 
@@ -11,8 +14,8 @@ const Header = () => {
         <img src={logo} alt="SSDT Logo" className="logo" />
         <h1>SSDT</h1>
       </div>
-      <div className="header-controls"> {/* Add a wrapper div */}
-        <ThemeToggle /> {/* Add the toggle component */}
+      <div className="header-controls">
+        <ThemeToggle />
         <a
           href="https://github.com/NiharikaN-CB/SSDT"
           target="_blank"
@@ -22,6 +25,9 @@ const Header = () => {
           <FiGithub />
           <span>Source</span>
         </a>
+        <Link to="/register" className="signup-button">
+          Sign Up
+        </Link>
       </div>
     </header>
   );
