@@ -1,13 +1,22 @@
 // File path: frontend/src/components/header.jsx
 
 import React from 'react';
-import { Link } from 'react-router-dom'; // Import Link
+import { Link, useNavigate } from 'react-router-dom';
 import { FiGithub } from 'react-icons/fi';
 import ThemeToggle from './ThemeToggle';
 import '../styles/Header.scss';
 import logo from '../assets/logo.svg';
 
 const Header = () => {
+  const navigate = useNavigate();
+  const token = localStorage.getItem('token');
+
+  const handleLogout = () => {
+    localStorage.removeItem('token'); // Clear the token
+    navigate('/'); // Redirect to the landing page
+    window.location.reload(); // Force a refresh to update the header
+  };
+
   return (
     <header className="header-container">
       <div className="logo-container">
@@ -25,9 +34,17 @@ const Header = () => {
           <FiGithub />
           <span>Source</span>
         </a>
-        <Link to="/register" className="signup-button">
-          Sign Up
-        </Link>
+        
+        {/* --- This logic shows Logout or Sign Up --- */}
+        {token ? (
+          <button onClick={handleLogout} className="logout-button">
+            Logout
+          </button>
+        ) : (
+          <Link to="/register" className="signup-button">
+            Sign Up
+          </Link>
+        )}
       </div>
     </header>
   );

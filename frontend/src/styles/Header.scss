@@ -46,60 +46,9 @@
     &:hover {
       color: var(--foreground);
     }
-    // File path: frontend/src/styles/Header.scss
-
-.header-container {
-  height: var(--header-height);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 var(--section-padding);
-  border-bottom: 1px solid var(--outline);
-  background-color: var(--background);
-  transition: background-color 0.3s, border-color 0.3s;
-
-  .logo-container {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-
-    .logo {
-      height: 2rem;
-      width: 2rem;
-    }
-
-    h1 {
-      font-size: 1.5rem;
-      font-family: var(--font-mono);
-      font-weight: 600;
-      margin: 0;
-      color: var(--foreground);
-      transition: color 0.3s;
-    }
   }
 
-  .header-controls {
-    display: flex;
-    align-items: center;
-    gap: 1.5rem;
-  }
-
-  .github-link {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--foreground-darker);
-    font-family: var(--font-mono);
-    text-decoration: none;
-    transition: color 0.2s ease-in-out;
-
-    &:hover {
-      color: var(--foreground);
-    }
-  }
-
-  /* --- Add these new styles for the button --- */
-  .signup-button {
+  .signup-button, .logout-button {
     background-color: var(--accent);
     color: var(--background);
     padding: 0.5rem 1rem;
@@ -107,6 +56,8 @@
     font-size: 0.9rem;
     font-weight: 600;
     text-decoration: none;
+    border: none;
+    cursor: pointer;
     transition: background-color 0.2s ease-in-out;
 
     &:hover {
@@ -114,6 +65,23 @@
       text-decoration: none;
     }
   }
-}
+  
+  .signup-button, .logout-button {
+    background-color: var(--accent);
+    color: var(--background);
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: none; 
+    cursor: pointer; 
+    font-family: var(--font-sans); 
+    transition: background-color 0.2s ease-in-out;
+
+    &:hover {
+      background-color: var(--accent-dark);
+      text-decoration: none;
+    }
   }
 }
