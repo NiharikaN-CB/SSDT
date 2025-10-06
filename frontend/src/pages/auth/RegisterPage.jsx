@@ -1,10 +1,8 @@
-// File path: frontend/src/pages/auth/RegisterPage.jsx
-
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom'; // Import Link
+import { useNavigate, Link } from 'react-router-dom';
 import Header from '../../components/header';
-import '../../styles/Auth.scss';
 import ParticleBackground from '../../components/ParticleBackground';
+import '../../styles/Auth.scss';
 
 const RegisterPage = () => {
   const [username, setUsername] = useState('');
@@ -14,14 +12,12 @@ const RegisterPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:3001/register', {
+      const response = await fetch('http://localhost:3001/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-
       const data = await response.json();
-
       if (response.ok) {
         alert(data.message);
         navigate('/login');
@@ -65,11 +61,9 @@ const RegisterPage = () => {
               </div>
               <button type="submit">Register</button>
             </form>
-            {/* --- Add this section --- */}
             <p className="auth-switch-link">
               Have an account already? <Link to="/login">Log in</Link>
             </p>
-            {/* ----------------------- */}
           </div>
         </div>
       </main>

@@ -1,10 +1,9 @@
 // File path: frontend/src/pages/auth/LoginPage.jsx
 
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom'; // Import Link
+import { useNavigate, Link } from 'react-router-dom';
 import Header from '../../components/header';
 import ParticleBackground from '../../components/ParticleBackground';
-import '../../styles/Auth.scss';
 
 const LoginPage = () => {
   const [username, setUsername] = useState('');
@@ -14,18 +13,16 @@ const LoginPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:3001/login', {
+      const response = await fetch('http://localhost:3001/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-
       const data = await response.json();
-
       if (response.ok) {
         localStorage.setItem('token', data.token);
         alert('Login successful!');
-        navigate('/dashboard');
+        navigate('/'); // <-- Changed from '/dashboard'
       } else {
         alert(`Error: ${data.message}`);
       }
@@ -66,11 +63,9 @@ const LoginPage = () => {
               </div>
               <button type="submit">Login</button>
             </form>
-            {/* --- Add this section --- */}
             <p className="auth-switch-link">
               New user? <Link to="/register">Register now</Link>
             </p>
-            {/* ----------------------- */}
           </div>
         </div>
       </main>
