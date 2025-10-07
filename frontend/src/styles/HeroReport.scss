@@ -1,0 +1,69 @@
+.report-container {
+  margin-top: 2rem;
+  border: 1px solid #ccc;
+  padding: 1rem;
+  border-radius: 8px;
+  background: #f0f4f8;
+  color: #222;
+}
+
+.report-title {
+  color: #004085;
+}
+
+.report-summary p {
+  margin: 4px 0;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  color: #333;
+  margin-top: 1rem;
+
+  thead tr {
+    background-color: #007bff;
+    color: white;
+  }
+
+  th, td {
+    border: 1px solid #004085;
+    padding: 10px;
+  }
+
+  tbody tr.even-row {
+    background-color: #e9f2fb;
+  }
+
+  tbody tr.odd-row {
+    background-color: white;
+  }
+}
+
+.risk-level {
+  font-weight: bold;
+  &.risk-safe {
+    color: green;
+  }
+  &.risk-low {
+    color: goldenrod;
+  }
+  &.risk-medium {
+    color: orange;
+  }
+  &.risk-high {
+    color: red;
+  }
+}
+
+.no-results {
+  text-align: center;
+  padding: 10px;
+  color: #666;
+}
+
+.error-msg {
+  color: red;
+  margin-top: 1rem;
+}
