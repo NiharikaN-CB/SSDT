@@ -3,7 +3,7 @@
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
-const { scanFile, scanUrl, getAnalysis } = require('../services/virustotalService');
+const { scanFile, scanUrl, getAnalysis } = require('../services/virustotalservice');
 const ScanResult = require('../models/ScanResult');
 
 const router = express.Router();

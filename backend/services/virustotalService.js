@@ -3,7 +3,6 @@ const FormData = require('form-data');
 const fs = require('fs');
 const Bottleneck = require('bottleneck');
 
-console.log('Loaded VT_API_KEY:', process.env.VT_API_KEY);
 
 const VT_API_KEY = process.env.VT_API_KEY;
 const VT_BASE = 'https://www.virustotal.com/api/v3';
