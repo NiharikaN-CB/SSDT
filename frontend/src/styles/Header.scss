@@ -47,4 +47,41 @@
       color: var(--foreground);
     }
   }
+
+  .signup-button, .logout-button {
+    background-color: var(--accent);
+    color: var(--background);
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+
+    &:hover {
+      background-color: var(--accent-dark);
+      text-decoration: none;
+    }
+  }
+  
+  .signup-button, .logout-button {
+    background-color: var(--accent);
+    color: var(--background);
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: none; 
+    cursor: pointer; 
+    font-family: var(--font-sans); 
+    transition: background-color 0.2s ease-in-out;
+
+    &:hover {
+      background-color: var(--accent-dark);
+      text-decoration: none;
+    }
+  }
 }

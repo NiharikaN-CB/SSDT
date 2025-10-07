@@ -1,20 +1,32 @@
+// File path: frontend/src/components/header.jsx
+
 import React from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { FiGithub } from 'react-icons/fi';
-import ThemeToggle from './ThemeToggle'; // Import the toggle
+import ThemeToggle from './ThemeToggle';
 import '../styles/Header.scss';
 import logo from '../assets/logo.svg';
 
 const Header = () => {
+  const navigate = useNavigate();
+  const token = localStorage.getItem('token');
+
+  const handleLogout = () => {
+    localStorage.removeItem('token'); // Clear the token
+    navigate('/'); // Redirect to the landing page
+    window.location.reload(); // Force a refresh to update the header
+  };
+
   return (
     <header className="header-container">
       <div className="logo-container">
-        <img src={logo} alt="WebCheck Logo" className="logo" />
-        <h1>WebCheck</h1>
+        <img src={logo} alt="SSDT Logo" className="logo" />
+        <h1>SSDT</h1>
       </div>
-      <div className="header-controls"> {/* Add a wrapper div */}
-        <ThemeToggle /> {/* Add the toggle component */}
+      <div className="header-controls">
+        <ThemeToggle />
         <a
-          href="https://github.com/lissy93/web-check"
+          href="https://github.com/NiharikaN-CB/SSDT"
           target="_blank"
           rel="noopener noreferrer"
           className="github-link"
@@ -22,6 +34,17 @@ const Header = () => {
           <FiGithub />
           <span>Source</span>
         </a>
+        
+        {/* --- This logic shows Logout or Sign Up --- */}
+        {token ? (
+          <button onClick={handleLogout} className="logout-button">
+            Logout
+          </button>
+        ) : (
+          <Link to="/register" className="signup-button">
+            Sign Up
+          </Link>
+        )}
       </div>
     </header>
   );
