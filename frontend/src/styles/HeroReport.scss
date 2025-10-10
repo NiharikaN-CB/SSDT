@@ -1,69 +1,179 @@
 .report-container {
   margin-top: 2rem;
-  border: 1px solid #ccc;
-  padding: 1rem;
-  border-radius: 8px;
-  background: #f0f4f8;
-  color: #222;
+  border: 1px solid var(--outline);
+  padding: 1.5rem;
+  border-radius: 12px;
+  background: var(--background-lighter);
+  color: var(--foreground);
+  max-width: 100%;
+  overflow-x: auto; /* Allow horizontal scroll if needed */
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
 .report-title {
-  color: #004085;
+  color: var(--accent);
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  word-break: break-word; /* Break long URLs */
 }
 
-.report-summary p {
-  margin: 4px 0;
-}
+.report-summary {
+  background: var(--background);
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--outline-darker);
 
-.report-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.95rem;
-  color: #333;
-  margin-top: 1rem;
+  p {
+    margin: 0.5rem 0;
+    color: var(--foreground);
+    font-size: 0.95rem;
 
-  thead tr {
-    background-color: #007bff;
-    color: white;
-  }
-
-  th, td {
-    border: 1px solid #004085;
-    padding: 10px;
-  }
-
-  tbody tr.even-row {
-    background-color: #e9f2fb;
-  }
-
-  tbody tr.odd-row {
-    background-color: white;
+    b {
+      color: var(--accent-light);
+      font-weight: 600;
+    }
   }
 }
 
 .risk-level {
   font-weight: bold;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  display: inline-block;
+  
   &.risk-safe {
-    color: green;
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.1);
   }
+  
   &.risk-low {
-    color: goldenrod;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
   }
+  
   &.risk-medium {
-    color: orange;
+    color: #f97316;
+    background: rgba(249, 115, 22, 0.1);
   }
+  
   &.risk-high {
-    color: red;
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+  }
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  color: var(--foreground);
+  margin-top: 1rem;
+  background: var(--background);
+  border-radius: 8px;
+  overflow: hidden;
+
+  thead tr {
+    background-color: var(--accent);
+    color: var(--background);
+    
+    th {
+      padding: 0.75rem 0.5rem;
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+  }
+
+  th, td {
+    border: 1px solid var(--outline);
+    padding: 0.75rem 0.5rem;
+    text-align: left;
+  }
+
+  tbody tr {
+    transition: background-color 0.2s;
+
+    &:hover {
+      background-color: var(--background-lighter);
+    }
+
+    &.even-row {
+      background-color: var(--background);
+    }
+
+    &.odd-row {
+      background-color: var(--background-light);
+    }
+
+    td {
+      color: var(--foreground);
+      font-size: 0.85rem;
+      
+      &:first-child {
+        font-weight: 600;
+        color: var(--accent-light);
+      }
+    }
   }
 }
 
 .no-results {
   text-align: center;
-  padding: 10px;
-  color: #666;
+  padding: 2rem;
+  color: var(--foreground-darker);
+  font-style: italic;
 }
 
 .error-msg {
-  color: red;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 1rem;
+  border-radius: 8px;
   margin-top: 1rem;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  font-weight: 500;
+}
+
+.loading-message {
+  text-align: center;
+  padding: 2rem;
+  color: var(--foreground);
+  
+  p {
+    margin: 0.5rem 0;
+    font-size: 1.1rem;
+    
+    &:first-child {
+      font-size: 1.3rem;
+      font-weight: 600;
+      color: var(--accent-light);
+    }
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .report-table {
+    font-size: 0.75rem;
+    
+    th, td {
+      padding: 0.5rem 0.25rem;
+    }
+    
+    thead th {
+      font-size: 0.7rem;
+    }
+  }
+  
+  .report-container {
+    padding: 1rem;
+  }
+  
+  .report-title {
+    font-size: 1.2rem;
+  }
 }
