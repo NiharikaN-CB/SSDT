@@ -23,7 +23,8 @@
     "form-data": "^4.0.4",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.1",
-    "multer": "^2.0.2"
+    "multer": "^2.0.2",
+    "zaproxy": "^2.0.0-rc.6"
   },
   "description": ""
 }
