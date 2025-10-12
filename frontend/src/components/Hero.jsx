@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import '../styles/Hero.scss';
 import '../styles/HeroReport.scss';
 
@@ -6,36 +7,115 @@ const Hero = () => {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const url = e.target.elements.url.value;
+
+    // Check if user is logged in
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('Please log in first to scan URLs');
+      navigate('/login');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setReport(null);
+
     try {
+      console.log('🔍 Submitting URL for scan:', url);
+
       // 1. Send URL for analysis
       const res = await fetch('http://localhost:3001/api/vt/url', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-auth-token': token // ✅ Added authentication token
+        },
         body: JSON.stringify({ url }),
       });
-      const data = await res.json();
-      if (!data.analysisId) throw new Error("No analysisId in response");
 
-      // 2. Fetch analysis result
-      const analysisRes = await fetch(`http://localhost:3001/api/vt/analysis/${data.analysisId}`);
-      const analysisData = await analysisRes.json();
-      setReport(analysisData);
+      const data = await res.json();
+      console.log('📋 Backend Response:', data);
+
+      // ✅ Fixed: Check for both possible response formats
+      const analysisId = data.analysisId || data.data?.id;
+
+      if (!analysisId) {
+        throw new Error(data.error || data.details || "No analysisId in response");
+      }
+
+      console.log('✅ Analysis ID received:', analysisId);
+
+      // 2. Poll for analysis result (VirusTotal takes time to analyze)
+      let attempts = 0;
+      const maxAttempts = 20; // Max 20 attempts (40 seconds)
+
+      const pollAnalysis = async () => {
+        attempts++;
+        console.log(`📊 Polling attempt ${attempts}/${maxAttempts}...`);
+
+        try {
+          const analysisRes = await fetch(
+            `http://localhost:3001/api/vt/analysis/${analysisId}`,
+            {
+              headers: {
+                'x-auth-token': token
+              }
+            }
+          );
+          const analysisData = await analysisRes.json();
+          console.log('📋 Analysis Data:', analysisData);
+
+          // Check if analysis is complete
+          const status = analysisData.status || analysisData.data?.attributes?.status;
+
+          if (status === 'completed') {
+            console.log('✅ Analysis completed!');
+            setReport(analysisData);
+            setLoading(false);
+          } else if (attempts >= maxAttempts) {
+            throw new Error('Analysis timeout. Please check back later.');
+          } else {
+            console.log(`⏳ Status: ${status}, waiting 2 seconds...`);
+            // Wait 2 seconds before next poll
+            setTimeout(pollAnalysis, 2000);
+          }
+        } catch (pollError) {
+          console.error('❌ Polling error:', pollError);
+          throw pollError;
+        }
+      };
+
+      // Start polling
+      await pollAnalysis();
+
     } catch (err) {
+      console.error('❌ Analysis error:', err);
       setError("Analysis failed: " + err.message);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const renderReport = () => {
-    if (loading) return <p>Analyzing...</p>;
-    if (error) return <p className="error-msg">{error}</p>;
+    if (loading) {
+      return (
+        <div className="loading-message">
+          <p>🔍 Analyzing URL...</p>
+          <p style={{ fontSize: '0.9rem', color: 'var(--foreground-darker)' }}>
+            This may take 20-40 seconds
+          </p>
+        </div>
+      );
+    }
+
+    if (error) {
+      return <p className="error-msg">{error}</p>;
+    }
+
     if (!report) return null;
 
     const engines = report?.result?.data?.attributes?.results || {};
@@ -111,7 +191,7 @@ const Hero = () => {
             {Object.keys(engines).length === 0 && (
               <tr>
                 <td colSpan={5} className="no-results">
-                  No engine results available.
+                  No engine results available yet. Analysis may still be processing.
                 </td>
               </tr>
             )}
@@ -138,9 +218,13 @@ const Hero = () => {
               id="url-input"
               name="url"
               type="text"
-              placeholder="E.g. google.com"
+              placeholder="E.g. https://google.com"
+              defaultValue="https://google.com"
+              required
             />
-            <button type="submit">Analyze URL</button>
+            <button type="submit" disabled={loading}>
+              {loading ? 'Analyzing...' : 'Analyze URL'}
+            </button>
           </div>
         </form>
         {renderReport()}
