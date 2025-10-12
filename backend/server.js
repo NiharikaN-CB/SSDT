@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./db');
+const { apiLimiter, authLimiter, scanLimiter } = require('./middleware/rateLimiter');
 
 // Validate required environment variables
 const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET', 'VT_API_KEY'];
@@ -19,6 +20,9 @@ const app = express();
 // Connect to MongoDB
 connectDB();
 
+// Trust proxy - important for rate limiting behind reverse proxies
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
@@ -29,13 +33,13 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logging middleware
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);
   next();
 });
 
-// Routes
-app.use('/auth', require('./routes/auth'));
-app.use('/api/vt', require('./routes/virustotalRoutes'));
+// Apply rate limiters to routes
+app.use('/auth', authLimiter, require('./routes/auth'));
+app.use('/api/vt', apiLimiter, scanLimiter, require('./routes/virustotalRoutes'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
