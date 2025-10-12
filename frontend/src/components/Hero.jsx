@@ -74,18 +74,18 @@ const Hero = () => {
           const status = analysisData.status || analysisData.data?.attributes?.status;
 
           if (status === 'completed') {
-            console.log('✅ Analysis completed!');
+            console.log(' Analysis completed!');
             setReport(analysisData);
             setLoading(false);
           } else if (attempts >= maxAttempts) {
             throw new Error('Analysis timeout. Please check back later.');
           } else {
-            console.log(`⏳ Status: ${status}, waiting 2 seconds...`);
+            console.log(` Status: ${status}, waiting 2 seconds...`);
             // Wait 2 seconds before next poll
             setTimeout(pollAnalysis, 2000);
           }
         } catch (pollError) {
-          console.error('❌ Polling error:', pollError);
+          console.error(' Polling error:', pollError);
           throw pollError;
         }
       };
@@ -94,7 +94,7 @@ const Hero = () => {
       await pollAnalysis();
 
     } catch (err) {
-      console.error('❌ Analysis error:', err);
+      console.error(' Analysis error:', err);
       setError("Analysis failed: " + err.message);
       setLoading(false);
     }
@@ -104,7 +104,7 @@ const Hero = () => {
     if (loading) {
       return (
         <div className="loading-message">
-          <p>🔍 Analyzing URL...</p>
+          <p> Analyzing URL...</p>
           <p style={{ fontSize: '0.9rem', color: 'var(--foreground-darker)' }}>
             This may take 20-40 seconds
           </p>

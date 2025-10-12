@@ -1,0 +1,262 @@
+/* ============================================
+   CLEAN NEON BUTTON STYLES
+   File: frontend/src/styles/NeonButtons.scss
+   ============================================ */
+
+/* Import cyber-style font (optional but recommended) */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap');
+
+/* ========================================
+   ANALYZE URL BUTTON - Hollow to Fill
+   ======================================== */
+.analyze-form button {
+  font-family: 'Orbitron', var(--font-sans) !important;
+  font-size: 1rem !important;
+  color: #0ff !important;
+  background: transparent !important;
+  border: 2px solid #0ff !important;
+  padding: 0.8em 2em !important;
+  border-radius: 10px !important;
+  text-transform: uppercase !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  position: relative !important;
+  overflow: hidden !important;
+  letter-spacing: 1px !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+}
+
+.analyze-form button:hover:not(:disabled) {
+  color: #000 !important;
+  background: #0ff !important;
+  border-color: #0ff !important;
+  transform: translateY(-2px) !important;
+}
+
+.analyze-form button:active:not(:disabled) {
+  transform: translateY(0) !important;
+  background: #00cccc !important;
+}
+
+.analyze-form button:disabled {
+  color: #555 !important;
+  border-color: #555 !important;
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  background: transparent !important;
+}
+
+/* ========================================
+   AUTH BUTTONS - Hollow to Fill
+   ======================================== */
+.auth-form button {
+  font-family: 'Orbitron', var(--font-sans) !important;
+  font-size: 1rem !important;
+  color: #0ff !important;
+  background: transparent !important;
+  border: 2px solid #0ff !important;
+  padding: 0.8em 2em !important;
+  border-radius: 10px !important;
+  text-transform: uppercase !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  position: relative !important;
+  overflow: hidden !important;
+  letter-spacing: 1px !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+}
+
+.auth-form button:hover:not(:disabled) {
+  color: #000 !important;
+  background: #0ff !important;
+  border-color: #0ff !important;
+  transform: translateY(-2px) !important;
+}
+
+.auth-form button:active:not(:disabled) {
+  transform: translateY(0) !important;
+  background: #00cccc !important;
+}
+
+.auth-form button:disabled {
+  color: #555 !important;
+  border-color: #555 !important;
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+  background: transparent !important;
+}
+
+/* ========================================
+   HEADER BUTTONS - Hollow to Fill
+   ======================================== */
+.signup-button,
+.logout-button {
+  font-family: 'Orbitron', var(--font-sans) !important;
+  font-size: 0.9rem !important;
+  color: #0ff !important;
+  background: transparent !important;
+  border: 2px solid #0ff !important;
+  padding: 0.6rem 1.5rem !important;
+  border-radius: 10px !important;
+  text-transform: uppercase !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  position: relative !important;
+  overflow: hidden !important;
+  letter-spacing: 1.5px !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+  text-decoration: none !important;
+  display: inline-block !important;
+}
+
+.signup-button:hover,
+.logout-button:hover {
+  color: #000 !important;
+  background: #0ff !important;
+  border-color: #0ff !important;
+  transform: translateY(-2px) !important;
+  text-decoration: none !important;
+}
+
+.signup-button:active,
+.logout-button:active {
+  transform: translateY(0) !important;
+  background: #00cccc !important;
+}
+
+/* ========================================
+   INPUT WRAPPER
+   ======================================== */
+.input-wrapper {
+  transition: all 0.3s ease;
+}
+
+.input-wrapper:focus-within {
+  border-color: #0ff !important;
+}
+
+/* ========================================
+   GITHUB LINK
+   ======================================== */
+.github-link {
+  transition: all 0.3s ease;
+}
+
+.github-link:hover {
+  color: #0ff !important;
+}
+
+/* ========================================
+   RISK LEVEL BADGES
+   ======================================== */
+.risk-level {
+  font-family: 'Orbitron', var(--font-sans);
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  transition: all 0.3s ease;
+  border: 2px solid;
+}
+
+.risk-level.risk-high {
+  color: #ff0055;
+  border-color: #ff0055;
+  background: transparent;
+}
+
+.risk-level.risk-medium {
+  color: #ff9500;
+  border-color: #ff9500;
+  background: transparent;
+}
+
+.risk-level.risk-low {
+  color: #ffdd00;
+  border-color: #ffdd00;
+  background: transparent;
+}
+
+.risk-level.risk-safe {
+  color: #00ff88;
+  border-color: #00ff88;
+  background: transparent;
+}
+
+/* ========================================
+   CONTAINERS
+   ======================================== */
+.report-container {
+  border: 2px solid #0ff;
+}
+
+.auth-container {
+  border: 2px solid #0ff;
+}
+
+/* ========================================
+   REPORT TABLE
+   ======================================== */
+.report-table thead tr {
+  background: rgba(0, 255, 255, 0.1);
+  border: 1px solid #0ff;
+}
+
+.report-table thead th {
+  color: #0ff;
+  font-family: 'Orbitron', var(--font-sans);
+  letter-spacing: 1px;
+}
+
+/* ========================================
+   LOADING MESSAGE
+   ======================================== */
+.loading-message p:first-child {
+  color: #0ff;
+  font-family: 'Orbitron', var(--font-sans);
+  letter-spacing: 1px;
+}
+
+/* ========================================
+   THEME ADJUSTMENTS
+   ======================================== */
+
+/* Light mode */
+body.light .analyze-form button,
+body.light .auth-form button,
+body.light .signup-button,
+body.light .logout-button {
+  color: var(--accent-dark) !important;
+  border-color: var(--accent-dark) !important;
+  background: transparent !important;
+}
+
+body.light .analyze-form button:hover:not(:disabled),
+body.light .auth-form button:hover:not(:disabled),
+body.light .signup-button:hover,
+body.light .logout-button:hover {
+  color: white !important;
+  background: var(--accent-dark) !important;
+  border-color: var(--accent-dark) !important;
+}
+
+/* Dark mode - default cyan styles */
+body.dark .analyze-form button,
+body.dark .auth-form button,
+body.dark .signup-button,
+body.dark .logout-button {
+  color: #0ff !important;
+  border-color: #0ff !important;
+  background: transparent !important;
+}
+
+body.dark .analyze-form button:hover:not(:disabled),
+body.dark .auth-form button:hover:not(:disabled),
+body.dark .signup-button:hover,
+body.dark .logout-button:hover {
+  color: #000 !important;
+  background: #0ff !important;
+  border-color: #0ff !important;
+}
