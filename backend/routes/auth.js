@@ -7,7 +7,7 @@ const auth = require('../middleware/auth');
 
 // Validate JWT_SECRET
 if (!process.env.JWT_SECRET) {
-  console.error('❌ ERROR: JWT_SECRET is not set in environment variables');
+  console.error(' ERROR: JWT_SECRET is not set in environment variables');
   process.exit(1);
 }
 
@@ -15,16 +15,20 @@ if (!process.env.JWT_SECRET) {
 // @desc    Register a new user
 // @access  Public
 router.post('/register', async (req, res) => {
-  const { username, password } = req.body;
+  const { name, email, password } = req.body;
 
   try {
-    console.log('📝 Registration attempt:', { username, passwordLength: password?.length });
+    console.log('Registration attempt:', { name, email, passwordLength: password?.length });
 
     // Simple validation
-    if (!username || username.trim().length < 3) {
+    if (!name || name.trim().length < 3) {
       return res.status(400).json({ 
-        message: 'Username must be at least 3 characters long' 
+        message: 'Name must be at least 3 characters long' 
       });
+    }
+
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+      return res.status(400).json({ message: 'Please enter a valid email' });
     }
 
     if (!password || password.length < 6) {
@@ -34,15 +38,16 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if user already exists
-    let user = await User.findOne({ username: username.toLowerCase() });
+    let user = await User.findOne({ email: email.toLowerCase() });
     if (user) {
-      console.log('❌ User already exists:', username);
+      console.log('User already exists:', email);
       return res.status(400).json({ message: 'User already exists' });
     }
 
     // Create new user
     user = new User({
-      username: username.toLowerCase(),
+      name,
+      email: email.toLowerCase(),
       password
     });
 
@@ -52,7 +57,7 @@ router.post('/register', async (req, res) => {
 
     await user.save();
 
-    console.log(`✅ New user registered: ${username}`);
+    console.log(`New user registered: ${email}`);
 
     // Create and return JWT
     const payload = {
@@ -67,7 +72,7 @@ router.post('/register', async (req, res) => {
       { expiresIn: '7d' },
       (err, token) => {
         if (err) {
-          console.error('❌ JWT signing error:', err);
+          console.error(' JWT signing error:', err);
           throw err;
         }
         res.status(201).json({
@@ -75,13 +80,14 @@ router.post('/register', async (req, res) => {
           token,
           user: {
             id: user.id,
-            username: user.username
+            name: user.name,
+            email: user.email
           }
         });
       }
     );
   } catch (err) {
-    console.error('❌ Registration error:', err.message);
+    console.error('Registration error:', err.message);
     res.status(500).json({ 
       message: 'Server error', 
       error: err.message 
@@ -93,33 +99,33 @@ router.post('/register', async (req, res) => {
 // @desc    Login user
 // @access  Public
 router.post('/login', async (req, res) => {
-  const { username, password } = req.body;
+  const { email, password } = req.body;
 
   try {
-    console.log('🔐 Login attempt:', { username });
+    console.log(' Login attempt:', { email });
 
     // Validate input
-    if (!username || !password) {
+    if (!email || !password) {
       return res.status(400).json({ 
-        message: 'Please provide username and password' 
+        message: 'Please provide email and password' 
       });
     }
 
     // Find user
-    const user = await User.findOne({ username: username.toLowerCase() });
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      console.log('❌ User not found:', username);
+      console.log(' User not found:', email);
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
     // Check password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      console.log('❌ Invalid password for user:', username);
+      console.log('Invalid password for user:', email);
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    console.log(`✅ User logged in: ${username}`);
+    console.log(`User logged in: ${email}`);
 
     // Create and return JWT
     const payload = {
@@ -134,7 +140,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' },
       (err, token) => {
         if (err) {
-          console.error('❌ JWT signing error:', err);
+          console.error(' JWT signing error:', err);
           throw err;
         }
         res.json({
@@ -142,13 +148,14 @@ router.post('/login', async (req, res) => {
           token,
           user: {
             id: user.id,
-            username: user.username
+            name: user.name,
+            email: user.email
           }
         });
       }
     );
   } catch (err) {
-    console.error('❌ Login error:', err.message);
+    console.error(' Login error:', err.message);
     res.status(500).json({ 
       message: 'Server error', 
       error: err.message 
@@ -167,7 +174,7 @@ router.get('/me', auth, async (req, res) => {
     }
     res.json(user);
   } catch (err) {
-    console.error('❌ Get user error:', err.message);
+    console.error(' Get user error:', err.message);
     res.status(500).json({ 
       message: 'Server error', 
       error: err.message 
