@@ -28,8 +28,8 @@ const Hero = () => {
     try {
       console.log('🔍 Submitting URL for scan:', url);
 
-      // 1. Send URL for analysis
-      const res = await fetch('http://localhost:3001/api/vt/url', {
+      // 1. Send URL for combined analysis (VirusTotal + PageSpeed + Gemini)
+      const res = await fetch('http://localhost:3001/api/vt/combined-url-scan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -50,9 +50,9 @@ const Hero = () => {
 
       console.log('✅ Analysis ID received:', analysisId);
 
-      // 2. Poll for analysis result (VirusTotal takes time to analyze)
+      // 2. Poll for combined analysis result (VirusTotal + PageSpeed + Gemini)
       let attempts = 0;
-      const maxAttempts = 20; // Max 20 attempts (40 seconds)
+      const maxAttempts = 30; // Max 30 attempts (60 seconds) - increased for combined analysis
 
       const pollAnalysis = async () => {
         attempts++;
@@ -60,7 +60,7 @@ const Hero = () => {
 
         try {
           const analysisRes = await fetch(
-            `http://localhost:3001/api/vt/analysis/${analysisId}`,
+            `http://localhost:3001/api/vt/combined-analysis/${analysisId}`,
             {
               headers: {
                 'x-auth-token': token
@@ -71,21 +71,31 @@ const Hero = () => {
           console.log('📋 Analysis Data:', analysisData);
 
           // Check if analysis is complete
-          const status = analysisData.status || analysisData.data?.attributes?.status;
+          const status = analysisData.status;
 
           if (status === 'completed') {
-            console.log(' Analysis completed!');
+            console.log('✅ Combined analysis completed!');
             setReport(analysisData);
             setLoading(false);
+          } else if (status === 'failed') {
+            throw new Error('Analysis failed: ' + (analysisData.error || 'Unknown error'));
           } else if (attempts >= maxAttempts) {
             throw new Error('Analysis timeout. Please check back later.');
           } else {
-            console.log(` Status: ${status}, waiting 2 seconds...`);
+            // Update loading message based on status
+            let statusMessage = 'Analyzing...';
+            if (status === 'queued' || status === 'pending') {
+              statusMessage = 'Running VirusTotal scan...';
+            } else if (status === 'combining') {
+              statusMessage = 'Combining results and generating AI report...';
+            }
+            console.log(`⏳ Status: ${statusMessage}`);
+
             // Wait 2 seconds before next poll
             setTimeout(pollAnalysis, 2000);
           }
         } catch (pollError) {
-          console.error(' Polling error:', pollError);
+          console.error('❌ Polling error:', pollError);
           throw pollError;
         }
       };
@@ -104,9 +114,9 @@ const Hero = () => {
     if (loading) {
       return (
         <div className="loading-message">
-          <p> Analyzing URL...</p>
+          <p>🔍 Analyzing URL...</p>
           <p style={{ fontSize: '0.9rem', color: 'var(--foreground-darker)' }}>
-            This may take 20-40 seconds
+            This may take 30-60 seconds (VirusTotal + PageSpeed + AI Analysis)
           </p>
         </div>
       );
@@ -118,7 +128,11 @@ const Hero = () => {
 
     if (!report) return null;
 
-    const engines = report?.result?.data?.attributes?.results || {};
+    // Extract data from combined report
+    const vtStats = report?.vtStats || {};
+    const psiScores = report?.psiScores || {};
+    const refinedReport = report?.refinedReport;
+    const engines = report?.vtResult?.data?.attributes?.results || {};
 
     const categoryDescriptions = {
       malicious: "High Risk",
@@ -128,12 +142,8 @@ const Hero = () => {
     };
 
     const totalEngines = Object.keys(engines).length;
-    const maliciousCount = Object.values(engines).filter(
-      (e) => e.category === "malicious"
-    ).length;
-    const suspiciousCount = Object.values(engines).filter(
-      (e) => e.category === "suspicious"
-    ).length;
+    const maliciousCount = vtStats.malicious || 0;
+    const suspiciousCount = vtStats.suspicious || 0;
 
     const maliciousPercentage =
       totalEngines > 0 ? ((maliciousCount / totalEngines) * 100).toFixed(1) : 0;
@@ -151,12 +161,138 @@ const Hero = () => {
       riskClass = "risk-low";
     }
 
+    // Function to get score color class
+    const getScoreClass = (score) => {
+      if (score >= 90) return 'score-good';
+      if (score >= 50) return 'score-medium';
+      return 'score-poor';
+    };
+
     return (
       <div className="report-container">
-        <h3 className="report-title">Scan Report for {report.target}</h3>
+        <h3 className="report-title">📊 Combined Scan Report for {report.target}</h3>
         <p>Status: <b>{report.status}</b></p>
 
+        {/* AI-Generated Summary Section */}
+        {refinedReport && (
+          <div className="ai-report-section" style={{
+            background: 'var(--card-bg)',
+            padding: '1.5rem',
+            marginBottom: '2rem',
+            borderRadius: '8px',
+            border: '2px solid var(--accent)',
+            fontFamily: 'monospace',
+            whiteSpace: 'pre-wrap',
+            lineHeight: '1.6',
+            fontSize: '0.9rem'
+          }}>
+            <h4 style={{ marginTop: 0, color: 'var(--accent)' }}>🤖 AI-Generated Analysis Summary</h4>
+            <div dangerouslySetInnerHTML={{ __html: (() => {
+              // Clean up markdown code blocks if present
+              let cleanReport = refinedReport;
+              if (cleanReport.startsWith('```markdown')) {
+                cleanReport = cleanReport.substring('```markdown\n'.length);
+              } else if (cleanReport.startsWith('```')) {
+                cleanReport = cleanReport.substring('```\n'.length);
+              }
+              if (cleanReport.endsWith('```\n')) {
+                cleanReport = cleanReport.substring(0, cleanReport.length - 4);
+              } else if (cleanReport.endsWith('```')) {
+                cleanReport = cleanReport.substring(0, cleanReport.length - 3);
+              }
+              return cleanReport.replace(/\n/g, '<br/>');
+            })()} } />
+          </div>
+        )}
+
+        {/* Combined Scores Overview */}
+        <div className="combined-scores" style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '1rem',
+          marginBottom: '2rem'
+        }}>
+          {/* Security Score */}
+          <div style={{
+            background: 'var(--card-bg)',
+            padding: '1rem',
+            borderRadius: '8px',
+            textAlign: 'center'
+          }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🛡️ Security</h4>
+            <span className={`risk-level ${riskClass}`} style={{ fontSize: '1.5rem' }}>
+              {riskLevel}
+            </span>
+            <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>
+              {maliciousCount}/{totalEngines} malicious
+            </p>
+          </div>
+
+          {/* PageSpeed Scores */}
+          {psiScores.performance !== null && (
+            <div style={{
+              background: 'var(--card-bg)',
+              padding: '1rem',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <h4 style={{ margin: '0 0 0.5rem 0' }}>⚡ Performance</h4>
+              <span className={getScoreClass(psiScores.performance)} style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
+                {psiScores.performance}
+              </span>
+              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>out of 100</p>
+            </div>
+          )}
+
+          {psiScores.accessibility !== null && (
+            <div style={{
+              background: 'var(--card-bg)',
+              padding: '1rem',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <h4 style={{ margin: '0 0 0.5rem 0' }}>♿ Accessibility</h4>
+              <span className={getScoreClass(psiScores.accessibility)} style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
+                {psiScores.accessibility}
+              </span>
+              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>out of 100</p>
+            </div>
+          )}
+
+          {psiScores.bestPractices !== null && (
+            <div style={{
+              background: 'var(--card-bg)',
+              padding: '1rem',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <h4 style={{ margin: '0 0 0.5rem 0' }}>✅ Best Practices</h4>
+              <span className={getScoreClass(psiScores.bestPractices)} style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
+                {psiScores.bestPractices}
+              </span>
+              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>out of 100</p>
+            </div>
+          )}
+
+          {psiScores.seo !== null && (
+            <div style={{
+              background: 'var(--card-bg)',
+              padding: '1rem',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <h4 style={{ margin: '0 0 0.5rem 0' }}>🔍 SEO</h4>
+              <span className={getScoreClass(psiScores.seo)} style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
+                {psiScores.seo}
+              </span>
+              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>out of 100</p>
+            </div>
+          )}
+        </div>
+
+        {/* Detailed Security Summary */}
         <div className="report-summary">
+          <h4>🔒 VirusTotal Security Details</h4>
           <p><b>Total engines scanned:</b> {totalEngines}</p>
           <p><b>Malicious detections:</b> {maliciousCount} ({maliciousPercentage}%)</p>
           <p><b>Suspicious detections:</b> {suspiciousCount}</p>
@@ -168,35 +304,41 @@ const Hero = () => {
           </p>
         </div>
 
-        <table className="report-table">
-          <thead>
-            <tr>
-              <th>Engine</th>
-              <th>Method</th>
-              <th>Category</th>
-              <th>Meaning</th>
-              <th>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(engines).map(([engine, val], index) => (
-              <tr key={engine} className={index % 2 === 0 ? "even-row" : "odd-row"}>
-                <td>{engine}</td>
-                <td>{val.method || "-"}</td>
-                <td>{val.category || "-"}</td>
-                <td>{categoryDescriptions[val.category] || "-"}</td>
-                <td>{val.result || "-"}</td>
-              </tr>
-            ))}
-            {Object.keys(engines).length === 0 && (
+        {/* Detailed Engine Results (Collapsible) */}
+        <details style={{ marginTop: '2rem' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 'bold', padding: '1rem', background: 'var(--card-bg)', borderRadius: '8px' }}>
+            📋 View Detailed Engine Results ({totalEngines} engines)
+          </summary>
+          <table className="report-table" style={{ marginTop: '1rem' }}>
+            <thead>
               <tr>
-                <td colSpan={5} className="no-results">
-                  No engine results available yet. Analysis may still be processing.
-                </td>
+                <th>Engine</th>
+                <th>Method</th>
+                <th>Category</th>
+                <th>Meaning</th>
+                <th>Result</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {Object.entries(engines).map(([engine, val], index) => (
+                <tr key={engine} className={index % 2 === 0 ? "even-row" : "odd-row"}>
+                  <td>{engine}</td>
+                  <td>{val.method || "-"}</td>
+                  <td>{val.category || "-"}</td>
+                  <td>{categoryDescriptions[val.category] || "-"}</td>
+                  <td>{val.result || "-"}</td>
+                </tr>
+              ))}
+              {Object.keys(engines).length === 0 && (
+                <tr>
+                  <td colSpan={5} className="no-results">
+                    No engine results available yet. Analysis may still be processing.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </details>
       </div>
     );
   };

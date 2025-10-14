@@ -40,6 +40,7 @@ app.use((req, res, next) => {
 // Apply rate limiters to routes
 app.use('/auth', authLimiter, require('./routes/auth'));
 app.use('/api/vt', apiLimiter, scanLimiter, require('./routes/virustotalRoutes'));
+app.use('/api/translate', apiLimiter, require('./routes/translateRoutes'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

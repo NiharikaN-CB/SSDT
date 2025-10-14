@@ -12,13 +12,21 @@ const scanResultSchema = new mongoose.Schema({
     unique: true,
     index: true
   },
-  result: {
+  vtResult: {
     type: Object,
+    default: null
+  },
+  pagespeedResult: {
+    type: Object,
+    default: null
+  },
+  refinedReport: {
+    type: String,
     default: null
   },
   status: {
     type: String,
-    enum: ['queued', 'pending', 'completed', 'failed'],
+    enum: ['queued', 'pending', 'combining', 'completed', 'failed'],
     default: 'queued'
   },
   userId: {

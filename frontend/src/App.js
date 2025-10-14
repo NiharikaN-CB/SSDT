@@ -8,6 +8,9 @@ import LandingPage from './pages/LandingPage';
 // Updated import paths
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
+// Translation imports
+import { TranslationProvider } from './contexts/TranslationContext';
+import LanguageToggle from './components/LanguageToggle';
 
 function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -23,14 +26,16 @@ function App() {
 
   // Show main application after splash
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-
-      </Routes>
-    </BrowserRouter>
+    <TranslationProvider>
+      <BrowserRouter>
+        <LanguageToggle />
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+        </Routes>
+      </BrowserRouter>
+    </TranslationProvider>
   );
 }
 
