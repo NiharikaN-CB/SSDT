@@ -17,8 +17,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@google-cloud/translate": "^8.5.0",
     "@google/generative-ai": "^0.21.0",
+    "@iamtraction/google-translate": "^2.0.1",
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",
     "bottleneck": "^2.19.5",

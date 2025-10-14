@@ -13,19 +13,12 @@ export const useTranslation = () => {
 export const TranslationProvider = ({ children }) => {
   const [currentLang, setCurrentLang] = useState('en');
   const [isTranslating, setIsTranslating] = useState(false);
-  const [translationCache, setTranslationCache] = useState(new Map());
+  const [translationCache] = useState(new Map());
 
-  // Load language preference from localStorage
+  // Always start with English on page load
+  // Translation is temporary and doesn't persist
   useEffect(() => {
-    const savedLang = localStorage.getItem('preferredLanguage');
-    if (savedLang && ['en', 'ja'].includes(savedLang)) {
-      setCurrentLang(savedLang);
-    }
-  }, []);
-
-  // Save language preference to localStorage
-  const saveLanguagePreference = useCallback((lang) => {
-    localStorage.setItem('preferredLanguage', lang);
+    setCurrentLang('en');
   }, []);
 
   /**
@@ -80,30 +73,72 @@ export const TranslationProvider = ({ children }) => {
   }, []);
 
   /**
-   * Translate texts via backend API
+   * Translate texts via backend API (using free Google Translate)
+   * Handles batching to prevent server crashes with large datasets
    */
   const translateTexts = useCallback(async (texts, targetLang) => {
     try {
-      const response = await fetch('http://localhost:3001/api/translate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          texts,
-          targetLang
-        })
-      });
+      const BATCH_SIZE = 200; // Process 200 texts at a time to prevent server crashes
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Translation failed');
+      // If texts array is small enough, send in one request
+      if (texts.length <= BATCH_SIZE) {
+        const response = await fetch('http://localhost:3001/api/translate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            texts,
+            targetLang
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || 'Translation failed');
+        }
+
+        const data = await response.json();
+        console.log(`✅ Translation complete. Cache hit rate: ${data.cacheHitRate}`);
+
+        return data.translated;
       }
 
-      const data = await response.json();
-      console.log(`✅ Translation complete. Cache hit rate: ${data.cacheHitRate}`);
+      // For large arrays, split into batches to prevent crashes
+      console.log(`📦 Splitting ${texts.length} texts into batches of ${BATCH_SIZE}...`);
+      const allTranslations = [];
 
-      return data.translated;
+      for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+        const batch = texts.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(texts.length / BATCH_SIZE);
+
+        console.log(`🔄 Translating batch ${batchNum}/${totalBatches} (${batch.length} texts)...`);
+
+        const response = await fetch('http://localhost:3001/api/translate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            texts: batch,
+            targetLang
+          })
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || 'Translation failed');
+        }
+
+        const data = await response.json();
+        allTranslations.push(...data.translated);
+
+        console.log(`✅ Batch ${batchNum}/${totalBatches} complete`);
+      }
+
+      console.log(`✅ All ${allTranslations.length} texts translated successfully!`);
+      return allTranslations;
     } catch (error) {
       console.error('❌ Translation error:', error);
       throw error;
@@ -143,21 +178,22 @@ export const TranslationProvider = ({ children }) => {
         }
       });
 
-      // Update state
+      // Update state (temporary - doesn't persist across page changes)
       setCurrentLang(targetLang);
-      saveLanguagePreference(targetLang);
+      // Don't save to localStorage - translation is temporary
 
       console.log(`✅ Page translated to ${targetLang}`);
     } catch (error) {
       console.error('Translation failed:', error);
-      alert(`Translation failed: ${error.message}\nPlease check your API configuration.`);
+      alert(`Translation failed: ${error.message}\nPlease check your backend server is running.`);
     } finally {
       setIsTranslating(false);
     }
-  }, [currentLang, collectTexts, translateTexts, saveLanguagePreference]);
+  }, [currentLang, collectTexts, translateTexts]);
 
   /**
    * Toggle between English and Japanese
+   * Translation is temporary - resets when new content loads or page changes
    */
   const toggleLanguage = useCallback(() => {
     const newLang = currentLang === 'en' ? 'ja' : 'en';

@@ -369,6 +369,21 @@ const Hero = () => {
             </button>
           </div>
         </form>
+        
+        {/* Translation Disclaimer */}
+        <div className="translation-disclaimer" style={{
+          background: 'rgba(255, 193, 7, 0.1)',
+          border: '2px solid #ffc107',
+          borderRadius: '8px',
+          padding: '1rem',
+          margin: '1rem 0',
+          fontSize: '0.9rem',
+          color: '#ffc107',
+          textAlign: 'center',
+          fontWeight: '500'
+        }}>
+          <strong>⚠️ Important:</strong> Please do not click the "English ↔ 日本語" translation button while analyzing URLs, as this can break the translation code and cause errors.
+        </div>
         {renderReport()}
       </div>
     </section>

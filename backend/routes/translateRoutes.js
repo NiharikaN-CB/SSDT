@@ -1,28 +1,15 @@
 const express = require('express');
-const { Translate } = require('@google-cloud/translate').v2;
+const translate = require('@iamtraction/google-translate');
 const TranslationCache = require('../models/TranslationCache');
 
 const router = express.Router();
 
-// Initialize Google Translate
-let translate;
-try {
-  const apiKey = process.env.GOOGLE_TRANSLATE_KEY;
-
-  if (!apiKey) {
-    console.warn('⚠️  GOOGLE_TRANSLATE_KEY not configured. Translation features will be disabled.');
-  } else {
-    translate = new Translate({ key: apiKey });
-    console.log('✅ Google Cloud Translation initialized');
-  }
-} catch (error) {
-  console.error('❌ Failed to initialize Google Cloud Translation:', error.message);
-}
+console.log('✅ Translation service initialized (Free Google Translate API - No API key required)');
 
 /**
  * POST /api/translate
- * Translates an array of texts to the target language
- * Uses MongoDB caching to reduce API costs and improve performance
+ * Translates an array of texts to the target language using free Google Translate API
+ * Uses MongoDB caching to improve performance and reduce requests
  */
 router.post('/', async (req, res) => {
   try {
@@ -40,21 +27,6 @@ router.post('/', async (req, res) => {
       return res.status(400).json({
         error: 'Invalid request',
         message: 'targetLang must be either "en" or "ja"'
-      });
-    }
-
-    if (!translate) {
-      return res.status(503).json({
-        error: 'Service unavailable',
-        message: 'Translation service is not configured'
-      });
-    }
-
-    // Limit to 100 texts per request to prevent abuse
-    if (texts.length > 100) {
-      return res.status(400).json({
-        error: 'Invalid request',
-        message: 'Maximum 100 texts per request'
       });
     }
 
@@ -79,7 +51,7 @@ router.post('/', async (req, res) => {
 
       if (cached && cached.isFresh()) {
         results[i] = cached.translatedText;
-        console.log(`✅ Cache hit for text ${i}`);
+        // console.log(`✅ Cache hit for text ${i}`); // Too verbose
       } else {
         // Add to batch for translation
         textsToTranslate.push(text);
@@ -87,24 +59,36 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Step 2: Translate uncached texts in batch
+    // Step 2: Translate uncached texts
     if (textsToTranslate.length > 0) {
-      console.log(`🌐 Translating ${textsToTranslate.length} texts via Google API...`);
+      console.log(`🌐 Translating ${textsToTranslate.length} texts via Free Google Translate API...`);
 
       try {
-        const [translations] = await translate.translate(textsToTranslate, {
-          from: targetLang === 'en' ? 'ja' : 'en',
-          to: targetLang,
-          format: 'text'
-        });
+        const sourceLang = targetLang === 'en' ? 'ja' : 'en';
+        const translationPromises = [];
 
-        // Ensure translations is always an array
-        const translationArray = Array.isArray(translations) ? translations : [translations];
+        // Create translation promises for each text
+        for (let i = 0; i < textsToTranslate.length; i++) {
+          const text = textsToTranslate[i];
+
+          // Translate using the free Google Translate API
+          const promise = translate(text, { from: sourceLang, to: targetLang })
+            .then(res => res.text)
+            .catch(err => {
+              console.error(`❌ Translation failed for text "${text.substring(0, 50)}...":`, err.message);
+              return text; // Return original text if translation fails
+            });
+
+          translationPromises.push(promise);
+        }
+
+        // Wait for all translations to complete
+        const translatedArray = await Promise.all(translationPromises);
 
         // Step 3: Save to cache and populate results
-        for (let i = 0; i < translationArray.length; i++) {
+        for (let i = 0; i < translatedArray.length; i++) {
           const originalIndex = indexMap[i];
-          const translatedText = translationArray[i];
+          const translatedText = translatedArray[i];
 
           results[originalIndex] = translatedText;
 
@@ -116,9 +100,9 @@ router.post('/', async (req, res) => {
           ).catch(err => console.error('Cache save error:', err.message));
         }
 
-        console.log(`✅ Successfully translated ${translationArray.length} texts`);
+        console.log(`✅ Successfully translated ${translatedArray.length} texts`);
       } catch (translationError) {
-        console.error('❌ Google Translate API error:', translationError.message);
+        console.error('❌ Translation API error:', translationError.message);
 
         return res.status(500).json({
           error: 'Translation failed',
