@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from '../contexts/TranslationContext';
 import '../styles/Hero.scss';
 import '../styles/HeroReport.scss';
 
@@ -8,6 +9,26 @@ const Hero = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const { clearTranslationCache, currentLang, translatePage, setHasReport } = useTranslation();
+
+  // Re-translate when report loads and we're in Japanese mode
+  useEffect(() => {
+    if (report) {
+      // Show the translate button now that report is loaded
+      setHasReport(true);
+
+      if (currentLang === 'ja') {
+        console.log('📊 Report loaded in Japanese mode, translating...');
+        // Wait for DOM to update
+        setTimeout(() => {
+          translatePage('ja');
+        }, 500);
+      }
+    } else {
+      // Hide translate button when no report
+      setHasReport(false);
+    }
+  }, [report, currentLang, translatePage, setHasReport]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -24,6 +45,9 @@ const Hero = () => {
     setLoading(true);
     setError(null);
     setReport(null);
+
+    // Note: We don't clear translation cache here anymore
+    // The translation system now intelligently detects new content
 
     try {
       console.log('🔍 Submitting URL for scan:', url);
@@ -187,21 +211,23 @@ const Hero = () => {
             fontSize: '0.9rem'
           }}>
             <h4 style={{ marginTop: 0, color: 'var(--accent)' }}>🤖 AI-Generated Analysis Summary</h4>
-            <div dangerouslySetInnerHTML={{ __html: (() => {
-              // Clean up markdown code blocks if present
-              let cleanReport = refinedReport;
-              if (cleanReport.startsWith('```markdown')) {
-                cleanReport = cleanReport.substring('```markdown\n'.length);
-              } else if (cleanReport.startsWith('```')) {
-                cleanReport = cleanReport.substring('```\n'.length);
-              }
-              if (cleanReport.endsWith('```\n')) {
-                cleanReport = cleanReport.substring(0, cleanReport.length - 4);
-              } else if (cleanReport.endsWith('```')) {
-                cleanReport = cleanReport.substring(0, cleanReport.length - 3);
-              }
-              return cleanReport.replace(/\n/g, '<br/>');
-            })()} } />
+            <div>
+              {(() => {
+                // Clean up markdown code blocks if present
+                let cleanReport = refinedReport;
+                if (cleanReport.startsWith('```markdown')) {
+                  cleanReport = cleanReport.substring('```markdown\n'.length);
+                } else if (cleanReport.startsWith('```')) {
+                  cleanReport = cleanReport.substring('```\n'.length);
+                }
+                if (cleanReport.endsWith('```\n')) {
+                  cleanReport = cleanReport.substring(0, cleanReport.length - 4);
+                } else if (cleanReport.endsWith('```')) {
+                  cleanReport = cleanReport.substring(0, cleanReport.length - 3);
+                }
+                return cleanReport;
+              })()}
+            </div>
           </div>
         )}
 
@@ -369,21 +395,7 @@ const Hero = () => {
             </button>
           </div>
         </form>
-        
-        {/* Translation Disclaimer */}
-        <div className="translation-disclaimer" style={{
-          background: 'rgba(255, 193, 7, 0.1)',
-          border: '2px solid #ffc107',
-          borderRadius: '8px',
-          padding: '1rem',
-          margin: '1rem 0',
-          fontSize: '0.9rem',
-          color: '#ffc107',
-          textAlign: 'center',
-          fontWeight: '500'
-        }}>
-          <strong>⚠️ Important:</strong> Please do not click the "English ↔ 日本語" translation button while analyzing URLs, as this can break the translation code and cause errors.
-        </div>
+
         {renderReport()}
       </div>
     </section>

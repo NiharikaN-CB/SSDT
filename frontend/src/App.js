@@ -10,7 +10,6 @@ import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 // Translation imports
 import { TranslationProvider } from './contexts/TranslationContext';
-import LanguageToggle from './components/LanguageToggle';
 
 function App() {
   const [showSplash, setShowSplash] = useState(true);
@@ -28,7 +27,6 @@ function App() {
   return (
     <TranslationProvider>
       <BrowserRouter>
-        <LanguageToggle />
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />

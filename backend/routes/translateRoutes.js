@@ -1,5 +1,5 @@
 const express = require('express');
-const translate = require('@iamtraction/google-translate');
+const gtranslate = require('google-translate-api-x');
 const TranslationCache = require('../models/TranslationCache');
 
 const router = express.Router();
@@ -71,8 +71,16 @@ router.post('/', async (req, res) => {
         for (let i = 0; i < textsToTranslate.length; i++) {
           const text = textsToTranslate[i];
 
+          // Use an options object for clarity
+          const translateOptions = {
+            from: sourceLang,
+            to: targetLang,
+            // Recommended for higher quality translation for technical text:
+            forceBatch: false
+          };
+
           // Translate using the free Google Translate API
-          const promise = translate(text, { from: sourceLang, to: targetLang })
+          const promise = gtranslate.translate(text, translateOptions)
             .then(res => res.text)
             .catch(err => {
               console.error(`❌ Translation failed for text "${text.substring(0, 50)}...":`, err.message);

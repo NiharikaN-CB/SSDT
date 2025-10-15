@@ -4,6 +4,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FiGithub } from 'react-icons/fi';
 import ThemeToggle from './ThemeToggle';
+import LanguageToggle from './LanguageToggle';
 import '../styles/Header.scss';
 import logo from '../assets/logo.svg';
 
@@ -25,16 +26,8 @@ const Header = () => {
       </div>
       <div className="header-controls">
         <ThemeToggle />
-        <a
-          href="https://github.com/NiharikaN-CB/SSDT"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="github-link"
-        >
-          <FiGithub />
-          <span>Source</span>
-        </a>
-        
+        <LanguageToggle />
+
         {/* --- This logic shows Logout or Sign Up --- */}
         {token ? (
           <button onClick={handleLogout} className="logout-button">
