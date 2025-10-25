@@ -8,6 +8,7 @@ import LandingPage from './pages/LandingPage';
 // Updated import paths
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
+import OTPVerification from './pages/auth/OTPVerification';
 // Translation imports
 import { TranslationProvider } from './contexts/TranslationContext';
 
@@ -31,6 +32,7 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/verify-otp" element={<OTPVerification />} />
         </Routes>
       </BrowserRouter>
     </TranslationProvider>

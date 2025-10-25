@@ -21,7 +21,8 @@ const RegisterPage = () => {
       const data = await response.json();
       if (response.ok) {
         alert(data.message);
-        navigate('/login');
+        // Navigate to OTP verification page with email
+        navigate('/verify-otp', { state: { email } });
       } else {
         alert(`Error: ${data.message}`);
       }

@@ -20,9 +20,9 @@ const LoginPage = () => {
       });
       const data = await response.json();
       if (response.ok) {
-        localStorage.setItem('token', data.token);
-        alert('Login successful!');
-        navigate('/'); // <-- Changed from '/dashboard'
+        alert(data.message);
+        // Navigate to OTP verification page with email
+        navigate('/verify-otp', { state: { email } });
       } else {
         alert(`Error: ${data.message}`);
       }
