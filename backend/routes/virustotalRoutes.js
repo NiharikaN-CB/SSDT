@@ -5,10 +5,38 @@ const path = require('path');
 const { scanFile, scanUrl, getAnalysis, getFileReport } = require('../services/virustotalService');
 const { getPageSpeedReport } = require('../services/pagespeedService');
 const { refineReport } = require('../services/geminiService');
+const { scanHost } = require('../services/observatoryService');
 const ScanResult = require('../models/ScanResult');
 const auth = require('../middleware/auth');
+const { combinedScanLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
+
+// URL validation helper function
+function isValidUrl(urlString) {
+  try {
+    const url = new URL(urlString);
+    // Check if protocol is http or https
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      return { valid: false, error: 'URL must use HTTP or HTTPS protocol' };
+    }
+    // Check if hostname is valid (not empty and contains at least one dot)
+    if (!url.hostname || url.hostname.length < 3) {
+      return { valid: false, error: 'Invalid hostname in URL' };
+    }
+    // Block localhost and private IP ranges for security
+    const blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '::1'];
+    const privateRanges = /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/;
+
+    if (blockedHosts.includes(url.hostname) || privateRanges.test(url.hostname)) {
+      return { valid: false, error: 'Cannot scan local or private network URLs' };
+    }
+
+    return { valid: true };
+  } catch (err) {
+    return { valid: false, error: 'Invalid URL format' };
+  }
+}
 
 // Configure multer
 const upload = multer({
@@ -108,6 +136,12 @@ router.post('/url', auth, async (req, res) => {
 
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'URL is required' });
+    }
+
+    // Validate URL format and security
+    const validation = isValidUrl(url);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
     }
 
     console.log(`🔐 User ${req.user.id} submitted URL: ${url}`);
@@ -235,13 +269,19 @@ router.get('/history', auth, async (req, res) => {
   }
 });
 
-// 5️⃣ Combined URL Scan (VirusTotal + PageSpeed + Gemini) (Protected route)
-router.post('/combined-url-scan', auth, async (req, res) => {
+// 5️⃣ Combined URL Scan (VirusTotal + PageSpeed + Gemini) (Protected route with strict rate limiting)
+router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) => {
   try {
     const { url } = req.body;
 
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'URL is required' });
+    }
+
+    // Validate URL format and security
+    const validation = isValidUrl(url);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
     }
 
     console.log(`🔐 User ${req.user.id} submitted URL for combined scan: ${url}`);
@@ -346,9 +386,9 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       }
     }
 
-    // STEP B: If VT is complete, check if we need PSI and Gemini
-    if (scan.vtResult && (!scan.pagespeedResult || !scan.refinedReport)) {
-      console.log('🔄 VT complete. Running PageSpeed and Gemini analysis...');
+    // STEP B: If VT is complete, check if we need PSI, Observatory and Gemini
+    if (scan.vtResult && (!scan.pagespeedResult || !scan.observatoryResult || !scan.refinedReport)) {
+      console.log('🔄 VT complete. Running PageSpeed, Observatory and Gemini analysis...');
 
       try {
         // Update status to combining
@@ -360,12 +400,36 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         const psiReport = await getPageSpeedReport(scan.target);
         scan.pagespeedResult = psiReport;
 
-        // Generate refined report with Gemini
-        console.log('🤖 Generating AI-refined report...');
-        const aiReport = await refineReport(scan.vtResult, psiReport, scan.target);
-        scan.refinedReport = aiReport;
+        // Get Observatory report (extract hostname from URL)
+        console.log('🔒 Fetching Mozilla Observatory report...');
+        let observatoryReport = null;
+        try {
+          const urlObj = new URL(scan.target);
+          const hostname = urlObj.hostname;
+          console.log(`🔍 Scanning hostname: ${hostname}`);
+          observatoryReport = await scanHost(hostname);
+          console.log('✅ Observatory scan result:', observatoryReport);
+          scan.observatoryResult = observatoryReport;
+        } catch (obsError) {
+          console.error('⚠️  Observatory scan failed:', obsError);
+          console.error('⚠️  Error details:', obsError.message);
+          // Continue even if Observatory fails - it's not critical
+          scan.observatoryResult = { error: obsError.message };
+        }
 
-        // Mark as completed
+        // Generate refined report with Gemini (now includes Observatory data)
+        console.log('🤖 Generating AI-refined report...');
+        try {
+          const aiReport = await refineReport(scan.vtResult, psiReport, observatoryReport, scan.target);
+          scan.refinedReport = aiReport;
+        } catch (geminiError) {
+          console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
+          // Don't fail the entire scan if only Gemini fails
+          // Store a fallback message instead
+          scan.refinedReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
+        }
+
+        // Mark as completed (even if Gemini failed, we have VT, PSI, and Observatory data)
         scan.status = 'completed';
         await scan.save();
 
@@ -396,6 +460,19 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         seo: categories.seo?.score ? Math.round(categories.seo.score * 100) : null
       };
 
+      // Extract Observatory metrics
+      console.log('📊 Processing Observatory Result:', scan.observatoryResult);
+
+      const observatoryData = scan.observatoryResult && !scan.observatoryResult.error ? {
+        grade: scan.observatoryResult.grade,
+        score: scan.observatoryResult.score,
+        tests_passed: scan.observatoryResult.tests_passed,
+        tests_failed: scan.observatoryResult.tests_failed,
+        tests_quantity: scan.observatoryResult.tests_quantity
+      } : null;
+
+      console.log('📊 Extracted Observatory Data:', observatoryData);
+
       return res.json({
         success: true,
         status: 'completed',
@@ -403,9 +480,11 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         target: scan.target,
         vtStats: vtStats,
         psiScores: psiScores,
+        observatoryData: observatoryData,
         refinedReport: scan.refinedReport,
         vtResult: scan.vtResult,
         pagespeedResult: scan.pagespeedResult,
+        observatoryResult: scan.observatoryResult,
         createdAt: scan.createdAt,
         updatedAt: scan.updatedAt
       });

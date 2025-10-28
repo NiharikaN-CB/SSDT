@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { FiGithub } from 'react-icons/fi';
 import ThemeToggle from './ThemeToggle';
 import LanguageToggle from './LanguageToggle';
 import '../styles/Header.scss';
@@ -20,19 +19,24 @@ const Header = () => {
 
   return (
     <header className="header-container">
-      <div className="logo-container">
+      <Link to="/" className="logo-container">
         <img src={logo} alt="SSDT Logo" className="logo" />
         <h1>SSDT</h1>
-      </div>
+      </Link>
       <div className="header-controls">
         <ThemeToggle />
         <LanguageToggle />
 
-        {/* --- This logic shows Logout or Sign Up --- */}
+        {/* --- This logic shows Profile & Logout or Sign Up --- */}
         {token ? (
-          <button onClick={handleLogout} className="logout-button">
-            Logout
-          </button>
+          <>
+            <Link to="/profile" className="profile-button">
+              Profile
+            </Link>
+            <button onClick={handleLogout} className="logout-button">
+              Logout
+            </button>
+          </>
         ) : (
           <Link to="/register" className="signup-button">
             Sign Up

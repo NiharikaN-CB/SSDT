@@ -7,9 +7,11 @@ import '../styles/HeroReport.scss';
 const Hero = () => {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingStage, setLoadingStage] = useState('');
   const [error, setError] = useState(null);
   const navigate = useNavigate();
-  const { clearTranslationCache, currentLang, translatePage, setHasReport } = useTranslation();
+  const { currentLang, translatePage, setHasReport } = useTranslation();
 
   // Re-translate when report loads and we're in Japanese mode
   useEffect(() => {
@@ -43,6 +45,8 @@ const Hero = () => {
     }
 
     setLoading(true);
+    setLoadingProgress(0);
+    setLoadingStage('Initializing scan...');
     setError(null);
     setReport(null);
 
@@ -51,6 +55,8 @@ const Hero = () => {
 
     try {
       console.log('🔍 Submitting URL for scan:', url);
+      setLoadingProgress(10);
+      setLoadingStage('Submitting URL to security scanners...');
 
       // 1. Send URL for combined analysis (VirusTotal + PageSpeed + Gemini)
       const res = await fetch('http://localhost:3001/api/vt/combined-url-scan', {
@@ -62,8 +68,22 @@ const Hero = () => {
         body: JSON.stringify({ url }),
       });
 
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+
+        // Handle rate limiting specifically
+        if (res.status === 429) {
+          const retryAfter = errorData.retryAfter || '1 minute';
+          throw new Error(`Rate limit exceeded. You can only perform one scan per minute. Please wait ${retryAfter} before trying again.`);
+        }
+
+        throw new Error(errorData.error || errorData.details || `HTTP ${res.status}: ${res.statusText}`);
+      }
+
       const data = await res.json();
       console.log('📋 Backend Response:', data);
+      setLoadingProgress(20);
+      setLoadingStage('Scan request accepted...');
 
       // ✅ Fixed: Check for both possible response formats
       const analysisId = data.analysisId || data.data?.id;
@@ -73,6 +93,8 @@ const Hero = () => {
       }
 
       console.log('✅ Analysis ID received:', analysisId);
+      setLoadingProgress(30);
+      setLoadingStage('Running VirusTotal security scan...');
 
       // 2. Poll for combined analysis result (VirusTotal + PageSpeed + Gemini)
       let attempts = 0;
@@ -81,6 +103,11 @@ const Hero = () => {
       const pollAnalysis = async () => {
         attempts++;
         console.log(`📊 Polling attempt ${attempts}/${maxAttempts}...`);
+
+        // Update progress: 30% to 90% over polling attempts
+        const progressIncrement = 60 / maxAttempts; // 60% divided by max attempts
+        const currentProgress = Math.min(30 + (attempts * progressIncrement), 90);
+        setLoadingProgress(Math.floor(currentProgress));
 
         try {
           const analysisRes = await fetch(
@@ -99,8 +126,16 @@ const Hero = () => {
 
           if (status === 'completed') {
             console.log('✅ Combined analysis completed!');
-            setReport(analysisData);
-            setLoading(false);
+            setLoadingProgress(100);
+            setLoadingStage('Analysis complete! Loading results...');
+
+            // Wait a brief moment to show 100%, then reset
+            setTimeout(() => {
+              setReport(analysisData);
+              setLoading(false);
+              setLoadingProgress(0); // Reset progress bar
+              setLoadingStage('');
+            }, 500);
           } else if (status === 'failed') {
             throw new Error('Analysis failed: ' + (analysisData.error || 'Unknown error'));
           } else if (attempts >= maxAttempts) {
@@ -109,9 +144,12 @@ const Hero = () => {
             // Update loading message based on status
             let statusMessage = 'Analyzing...';
             if (status === 'queued' || status === 'pending') {
-              statusMessage = 'Running VirusTotal scan...';
+              statusMessage = 'Running VirusTotal security scan... (Step 1/4)';
+              setLoadingStage(statusMessage);
             } else if (status === 'combining') {
-              statusMessage = 'Combining results and generating AI report...';
+              statusMessage = 'Analyzing performance & security headers... (Step 3/4)';
+              setLoadingStage(statusMessage);
+              setLoadingProgress(Math.min(currentProgress + 10, 95)); // Boost progress when combining
             }
             console.log(`⏳ Status: ${statusMessage}`);
 
@@ -128,9 +166,30 @@ const Hero = () => {
       await pollAnalysis();
 
     } catch (err) {
-      console.error(' Analysis error:', err);
-      setError("Analysis failed: " + err.message);
+      console.error('❌ Analysis error:', err);
+
+      // Provide more helpful error messages
+      let errorMessage = "Analysis failed: ";
+
+      if (err.message === 'Failed to fetch') {
+        errorMessage += "Cannot connect to backend server. Please ensure the backend is running on http://localhost:3001";
+      } else if (err.message.includes('NetworkError')) {
+        errorMessage += "Network error. Check your internet connection and ensure backend is running.";
+      } else if (err.message.includes('401') || err.message.includes('Unauthorized')) {
+        errorMessage += "Authentication failed. Please log in again.";
+        localStorage.removeItem('token');
+        setTimeout(() => navigate('/login'), 2000);
+      } else if (err.message.includes('429') || err.message.includes('rate limit') || err.message.includes('Rate limit')) {
+        // Rate limit error - show the full message as it contains helpful info
+        errorMessage = err.message;
+      } else {
+        errorMessage += err.message;
+      }
+
+      setError(errorMessage);
       setLoading(false);
+      setLoadingProgress(0); // Reset progress bar on error
+      setLoadingStage('');
     }
   };
 
@@ -138,10 +197,35 @@ const Hero = () => {
     if (loading) {
       return (
         <div className="loading-message">
-          <p>🔍 Analyzing URL...</p>
-          <p style={{ fontSize: '0.9rem', color: 'var(--foreground-darker)' }}>
-            This may take 30-60 seconds (VirusTotal + PageSpeed + AI Analysis)
+          <p>🔍 {loadingStage || 'Analyzing URL...'}</p>
+          <p style={{ fontSize: '0.9rem', color: 'var(--foreground-darker)', marginTop: '0.5rem' }}>
+            This may take 30-60 seconds (VirusTotal + PageSpeed + Observatory + AI Analysis)
           </p>
+          <div style={{
+            marginTop: '1rem',
+            padding: '0.5rem',
+            background: 'var(--card-bg)',
+            borderRadius: '4px',
+            fontSize: '0.85rem'
+          }}>
+            <div style={{ marginBottom: '0.5rem' }}>
+              <strong>Analysis Steps:</strong>
+            </div>
+            <div style={{ paddingLeft: '1rem' }}>
+              <div style={{ opacity: loadingProgress >= 30 ? 1 : 0.5 }}>
+                {loadingProgress >= 30 ? '✓' : '○'} Step 1: VirusTotal Security Scan
+              </div>
+              <div style={{ opacity: loadingProgress >= 60 ? 1 : 0.5 }}>
+                {loadingProgress >= 60 ? '✓' : '○'} Step 2: PageSpeed Analysis
+              </div>
+              <div style={{ opacity: loadingProgress >= 75 ? 1 : 0.5 }}>
+                {loadingProgress >= 75 ? '✓' : '○'} Step 3: Security Headers Check
+              </div>
+              <div style={{ opacity: loadingProgress >= 90 ? 1 : 0.5 }}>
+                {loadingProgress >= 90 ? '✓' : '○'} Step 4: AI Report Generation
+              </div>
+            </div>
+          </div>
         </div>
       );
     }
@@ -155,8 +239,14 @@ const Hero = () => {
     // Extract data from combined report
     const vtStats = report?.vtStats || {};
     const psiScores = report?.psiScores || {};
+    const observatoryData = report?.observatoryData || null;
     const refinedReport = report?.refinedReport;
     const engines = report?.vtResult?.data?.attributes?.results || {};
+
+    // Debug: Log observatory data (comment out in production)
+    // console.log('🔍 Observatory Data:', observatoryData);
+    // console.log('🔍 Observatory Result from backend:', report?.observatoryResult);
+    // console.log('🔍 Full Report:', report);
 
     const categoryDescriptions = {
       malicious: "High Risk",
@@ -192,6 +282,19 @@ const Hero = () => {
       return 'score-poor';
     };
 
+    // Function to get Observatory grade color
+    const getObservatoryGradeColor = (grade) => {
+      if (!grade) return '#888';
+      const gradeColors = {
+        'A+': '#00d084', 'A': '#00d084', 'A-': '#00d084',
+        'B+': '#7fba00', 'B': '#7fba00', 'B-': '#7fba00',
+        'C+': '#ffb900', 'C': '#ffb900', 'C-': '#ffb900',
+        'D+': '#ff8c00', 'D': '#ff8c00', 'D-': '#ff8c00',
+        'F': '#e81123'
+      };
+      return gradeColors[grade] || '#888';
+    };
+
     return (
       <div className="report-container">
         <h3 className="report-title">📊 Combined Scan Report for {report.target}</h3>
@@ -208,13 +311,16 @@ const Hero = () => {
             fontFamily: 'monospace',
             whiteSpace: 'pre-wrap',
             lineHeight: '1.6',
-            fontSize: '0.9rem'
+            fontSize: '0.9rem',
+            textAlign: 'justify'
           }}>
             <h4 style={{ marginTop: 0, color: 'var(--accent)' }}>🤖 AI-Generated Analysis Summary</h4>
             <div>
               {(() => {
-                // Clean up markdown code blocks if present
+                // Clean up markdown code blocks and markdown symbols
                 let cleanReport = refinedReport;
+
+                // Remove code block wrappers
                 if (cleanReport.startsWith('```markdown')) {
                   cleanReport = cleanReport.substring('```markdown\n'.length);
                 } else if (cleanReport.startsWith('```')) {
@@ -225,6 +331,10 @@ const Hero = () => {
                 } else if (cleanReport.endsWith('```')) {
                   cleanReport = cleanReport.substring(0, cleanReport.length - 3);
                 }
+
+                // Remove markdown heading symbols (# ## ###)
+                cleanReport = cleanReport.replace(/^#{1,6}\s+/gm, '');
+
                 return cleanReport;
               })()}
             </div>
@@ -314,6 +424,30 @@ const Hero = () => {
               <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>out of 100</p>
             </div>
           )}
+
+          {observatoryData && (
+            <div style={{
+              background: 'var(--card-bg)',
+              padding: '1rem',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <h4 style={{ margin: '0 0 0.5rem 0' }}>🔒 Security Config</h4>
+              <span style={{
+                fontSize: '1.5rem',
+                fontWeight: 'bold',
+                color: getObservatoryGradeColor(observatoryData.grade)
+              }}>
+                {observatoryData.grade}
+              </span>
+              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                Mozilla Observatory
+              </p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--foreground-darker)' }}>
+                {observatoryData.tests_passed}/{observatoryData.tests_quantity} tests passed
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Detailed Security Summary */}
@@ -330,8 +464,56 @@ const Hero = () => {
           </p>
         </div>
 
-        {/* Detailed Engine Results (Collapsible) */}
-        <details style={{ marginTop: '2rem' }}>
+        {/* Observatory Detailed Section */}
+        {observatoryData ? (
+          <div className="report-summary" style={{ marginTop: '2rem' }}>
+            <h4>🔒 Mozilla Observatory Security Configuration</h4>
+            <p><b>Security Grade:</b> <span style={{ color: getObservatoryGradeColor(observatoryData.grade), fontWeight: 'bold', fontSize: '1.2rem' }}>{observatoryData.grade}</span></p>
+            <p><b>Score:</b> {observatoryData.score}/100</p>
+            <p><b>Tests Passed:</b> {observatoryData.tests_passed}/{observatoryData.tests_quantity}</p>
+            <p><b>Tests Failed:</b> {observatoryData.tests_failed}/{observatoryData.tests_quantity}</p>
+            <p>
+              <b>View Full Report:</b>{" "}
+              <a
+                href={`https://developer.mozilla.org/en-US/observatory/analyze?host=${encodeURIComponent(new URL(report.target).hostname)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: 'var(--accent)',
+                  textDecoration: 'underline',
+                  fontWeight: 'bold'
+                }}
+              >
+                Mozilla Observatory Report ↗
+              </a>
+            </p>
+          </div>
+        ) : (
+          <div className="report-summary" style={{ marginTop: '2rem', opacity: 0.7 }}>
+            <h4>🔒 Mozilla Observatory Security Configuration</h4>
+            <p style={{ color: '#888' }}>
+              <i>Observatory scan data not available for this URL.</i>
+            </p>
+            <p>
+              <b>Manual Scan:</b>{" "}
+              <a
+                href={`https://developer.mozilla.org/en-US/observatory/analyze?host=${encodeURIComponent(new URL(report.target).hostname)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: 'var(--accent)',
+                  textDecoration: 'underline',
+                  fontWeight: 'bold'
+                }}
+              >
+                Run Mozilla Observatory Scan ↗
+              </a>
+            </p>
+          </div>
+        )}
+
+        {/* Detailed Engine Results (Collapsible) - DO NOT TRANSLATE */}
+        <details style={{ marginTop: '2rem' }} data-no-translate>
           <summary style={{ cursor: 'pointer', fontWeight: 'bold', padding: '1rem', background: 'var(--card-bg)', borderRadius: '8px' }}>
             📋 View Detailed Engine Results ({totalEngines} engines)
           </summary>
@@ -390,8 +572,20 @@ const Hero = () => {
               defaultValue="https://google.com"
               required
             />
-            <button type="submit" disabled={loading}>
-              {loading ? 'Analyzing...' : 'Analyze URL'}
+            <button
+              type="submit"
+              disabled={loading}
+              className={loading ? 'analyzing' : ''}
+              style={{
+                '--progress': `${loadingProgress}%`
+              }}
+            >
+              {loading && (
+                <div className="progress-percentage">{loadingProgress}%</div>
+              )}
+              <span className="button-text">
+                {loading ? 'Analyzing...' : 'Analyze URL'}
+              </span>
             </button>
           </div>
         </form>

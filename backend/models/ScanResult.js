@@ -20,6 +20,10 @@ const scanResultSchema = new mongoose.Schema({
     type: Object,
     default: null
   },
+  observatoryResult: {
+    type: Object,
+    default: null
+  },
   refinedReport: {
     type: String,
     default: null

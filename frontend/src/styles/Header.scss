@@ -12,6 +12,13 @@
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    text-decoration: none;
+    cursor: pointer;
+    transition: opacity 0.2s ease-in-out;
+
+    &:hover {
+      opacity: 0.8;
+    }
 
     .logo {
       height: 2rem;
@@ -48,7 +55,7 @@
     }
   }
 
-  .signup-button, .logout-button {
+  .signup-button {
     background-color: var(--accent);
     color: var(--background);
     padding: 0.5rem 1rem;
@@ -58,29 +65,34 @@
     text-decoration: none;
     border: none;
     cursor: pointer;
+    font-family: var(--font-sans);
     transition: background-color 0.2s ease-in-out;
+    display: inline-block;
 
     &:hover {
       background-color: var(--accent-dark);
       text-decoration: none;
     }
   }
-  
-  .signup-button, .logout-button {
-    background-color: var(--accent);
-    color: var(--background);
+
+  .profile-button,
+  .logout-button {
+    background-color: transparent;
+    color: var(--accent);
     padding: 0.5rem 1rem;
     border-radius: 5px;
     font-size: 0.9rem;
     font-weight: 600;
     text-decoration: none;
-    border: none; 
-    cursor: pointer; 
-    font-family: var(--font-sans); 
-    transition: background-color 0.2s ease-in-out;
+    border: 2px solid var(--accent);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    transition: all 0.2s ease-in-out;
+    display: inline-block;
 
     &:hover {
-      background-color: var(--accent-dark);
+      background-color: var(--accent);
+      color: var(--background);
       text-decoration: none;
     }
   }

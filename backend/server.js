@@ -41,6 +41,7 @@ app.use((req, res, next) => {
 app.use('/auth', authLimiter, require('./routes/auth'));
 app.use('/api/vt', apiLimiter, scanLimiter, require('./routes/virustotalRoutes'));
 app.use('/api/translate', apiLimiter, require('./routes/translateRoutes'));
+app.use('/api/profile', apiLimiter, require('./routes/profile'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

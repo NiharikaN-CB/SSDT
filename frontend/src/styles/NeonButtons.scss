@@ -92,7 +92,8 @@
    HEADER BUTTONS - Hollow to Fill
    ======================================== */
 .signup-button,
-.logout-button {
+.logout-button,
+.profile-button {
   font-family: 'Orbitron', var(--font-sans) !important;
   font-size: 0.9rem !important;
   color: #0ff !important;
@@ -113,7 +114,8 @@
 }
 
 .signup-button:hover,
-.logout-button:hover {
+.logout-button:hover,
+.profile-button:hover {
   color: #000 !important;
   background: #0ff !important;
   border-color: #0ff !important;
@@ -122,7 +124,8 @@
 }
 
 .signup-button:active,
-.logout-button:active {
+.logout-button:active,
+.profile-button:active {
   transform: translateY(0) !important;
   background: #00cccc !important;
 }
@@ -227,7 +230,8 @@
 body.light .analyze-form button,
 body.light .auth-form button,
 body.light .signup-button,
-body.light .logout-button {
+body.light .logout-button,
+body.light .profile-button {
   color: var(--accent-dark) !important;
   border-color: var(--accent-dark) !important;
   background: transparent !important;
@@ -236,7 +240,8 @@ body.light .logout-button {
 body.light .analyze-form button:hover:not(:disabled),
 body.light .auth-form button:hover:not(:disabled),
 body.light .signup-button:hover,
-body.light .logout-button:hover {
+body.light .logout-button:hover,
+body.light .profile-button:hover {
   color: white !important;
   background: var(--accent-dark) !important;
   border-color: var(--accent-dark) !important;
@@ -246,7 +251,8 @@ body.light .logout-button:hover {
 body.dark .analyze-form button,
 body.dark .auth-form button,
 body.dark .signup-button,
-body.dark .logout-button {
+body.dark .logout-button,
+body.dark .profile-button {
   color: #0ff !important;
   border-color: #0ff !important;
   background: transparent !important;
@@ -255,7 +261,8 @@ body.dark .logout-button {
 body.dark .analyze-form button:hover:not(:disabled),
 body.dark .auth-form button:hover:not(:disabled),
 body.dark .signup-button:hover,
-body.dark .logout-button:hover {
+body.dark .logout-button:hover,
+body.dark .profile-button:hover {
   color: #000 !important;
   background: #0ff !important;
   border-color: #0ff !important;

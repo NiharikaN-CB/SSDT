@@ -86,3 +86,58 @@
   background: var(--accent-dark);
 }
 
+.auth-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.auth-links {
+  margin: 1.5rem 0;
+}
+
+.resend-button {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 0.5rem 1.5rem;
+  border-radius: 5px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: var(--font-mono);
+}
+
+.resend-button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--background);
+}
+
+.resend-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-subtitle {
+  color: var(--foreground-darker);
+  margin-bottom: 1.5rem;
+  font-size: 1rem;
+}
+
+.auth-switch-link {
+  margin-top: 1.5rem;
+  color: var(--foreground-darker);
+  font-size: 0.9rem;
+}
+
+.auth-switch-link a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.auth-switch-link a:hover {
+  color: var(--accent-dark);
+  text-decoration: underline;
+}
+

@@ -211,6 +211,7 @@ router.post('/verify-otp', async (req, res) => {
     user.otp = undefined;
     user.otpExpires = undefined;
     user.isVerified = true;
+    user.lastLoginAt = new Date(); // Track last login
     await user.save();
 
     console.log(`User verified: ${email}`);

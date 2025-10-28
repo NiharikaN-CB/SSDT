@@ -69,8 +69,16 @@ export const TranslationProvider = ({ children }) => {
 
     let node;
     while ((node = walker.nextNode())) {
-      texts.push(node.nodeValue.trim());
-      nodes.push(node);
+      const originalText = node.nodeValue;
+      const trimmedText = originalText.trim();
+
+      // Store both the trimmed text for translation and the original for whitespace preservation
+      texts.push(trimmedText);
+      nodes.push({
+        node,
+        leadingSpace: originalText.match(/^(\s*)/)[1],
+        trailingSpace: originalText.match(/(\s*)$/)[1]
+      });
     }
 
     console.log(`📝 Collected ${texts.length} text nodes for translation`);
@@ -211,11 +219,12 @@ export const TranslationProvider = ({ children }) => {
           setTranslationProgress(100); // Instant progress when fully cached
         }
 
-        // Apply translations to all nodes
-        nodes.forEach((node, index) => {
+        // Apply translations to all nodes with preserved whitespace
+        nodes.forEach((nodeInfo, index) => {
           const translation = translationMap.get(texts[index]);
           if (translation) {
-            node.nodeValue = translation;
+            // Restore original leading/trailing whitespace
+            nodeInfo.node.nodeValue = nodeInfo.leadingSpace + translation + nodeInfo.trailingSpace;
           }
         });
 
@@ -233,13 +242,14 @@ export const TranslationProvider = ({ children }) => {
           reverseMap.set(ja, en);
         });
 
-        // Restore English for each node
-        nodes.forEach((node, index) => {
+        // Restore English for each node with preserved whitespace
+        nodes.forEach((nodeInfo, index) => {
           const currentJapanese = texts[index];
           const originalEnglish = reverseMap.get(currentJapanese);
 
           if (originalEnglish) {
-            node.nodeValue = originalEnglish;
+            // Restore original leading/trailing whitespace
+            nodeInfo.node.nodeValue = nodeInfo.leadingSpace + originalEnglish + nodeInfo.trailingSpace;
           }
           // If no reverse mapping exists, the text is already in English
         });
