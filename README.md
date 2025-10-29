@@ -5,6 +5,7 @@ A comprehensive web security and performance analysis tool that scans URLs for m
 ## Features
 
 ### Combined URL Scanning
+
 Scan any URL and get a complete analysis in one request:
 
 1. **VirusTotal** - Malware detection across 70+ security engines
@@ -13,17 +14,24 @@ Scan any URL and get a complete analysis in one request:
 4. **AI Analysis** - Gemini-powered comprehensive security & performance report
 
 ### User Authentication
+
 - User registration with email verification
 - OTP-based login for enhanced security
 - JWT token authentication
+- Forgot password with email reset link
+- Password reset with secure token validation
+- Skip OTP for recently reset passwords (24-hour window)
+- Inline UI messages instead of browser alerts
 
 ### Multi-language Support
+
 - English and Japanese translation support
 - Google Translate API integration
 
 ## Tech Stack
 
 ### Backend
+
 - Node.js + Express
 - MongoDB (Mongoose)
 - APIs:
@@ -34,6 +42,7 @@ Scan any URL and get a complete analysis in one request:
   - Google Translate API
 
 ### Frontend
+
 - React 19
 - React Router
 - SCSS styling
@@ -42,6 +51,7 @@ Scan any URL and get a complete analysis in one request:
 ## Setup
 
 ### Prerequisites
+
 - Node.js >= 18.0.0
 - MongoDB Atlas account or local MongoDB
 - API Keys (see `.env.example`)
@@ -49,6 +59,7 @@ Scan any URL and get a complete analysis in one request:
 ### Installation
 
 1. **Clone and install dependencies:**
+
    ```bash
    # Backend
    cd backend
@@ -60,6 +71,7 @@ Scan any URL and get a complete analysis in one request:
    ```
 
 2. **Configure environment variables:**
+
    ```bash
    cd backend
    cp .env.example .env
@@ -67,6 +79,7 @@ Scan any URL and get a complete analysis in one request:
    ```
 
 3. **Start the application:**
+
    ```bash
    # Terminal 1 - Backend
    cd backend
@@ -78,6 +91,7 @@ Scan any URL and get a complete analysis in one request:
    ```
 
 4. **Access the app:**
+
    - Frontend: http://localhost:3000
    - Backend: http://localhost:3001
    - Backend Health Check: http://localhost:3001/health
@@ -87,7 +101,7 @@ Scan any URL and get a complete analysis in one request:
 ## Usage
 
 1. Register an account and verify email
-2. Login with OTP verification
+2. Login with OTP verification (or directly if password was recently reset)
 3. Enter a URL to scan (e.g., https://github.com)
 4. Wait 30-60 seconds for complete analysis
 5. View results:
@@ -95,6 +109,7 @@ Scan any URL and get a complete analysis in one request:
    - Performance scores (4 metrics)
    - Security configuration grade from Observatory
    - AI-generated comprehensive analysis
+
 
 ## Project Structure
 
@@ -119,19 +134,24 @@ SSDT/
 ## API Endpoints
 
 ### Authentication
+
 - `POST /auth/register` - Register new user
-- `POST /auth/login` - Login and send OTP
+- `POST /auth/login` - Login and send OTP (skips OTP for recently reset passwords)
 - `POST /auth/verify-otp` - Verify OTP and get JWT token
 - `POST /auth/resend-otp` - Resend OTP
+- `POST /auth/forgot-password` - Send password reset email
+- `POST /auth/reset-password` - Reset password with token
 - `GET /auth/me` - Get current user (protected)
 
 ### Scanning
+
 - `POST /api/vt/combined-url-scan` - Initiate combined scan (protected)
 - `GET /api/vt/combined-analysis/:id` - Poll for scan results (protected)
 - `POST /api/vt/file` - Scan uploaded file (protected)
 - `POST /api/vt/url` - Scan URL (VirusTotal only, protected)
 
 ### Translation
+
 - `POST /api/translate` - Translate text (protected)
 
 ## Environment Variables
@@ -169,6 +189,7 @@ To avoid rate limiting and "model overloaded" errors, you can configure multiple
 
 1. **Get multiple API keys** from [Google AI Studio](https://aistudio.google.com/app/apikey)
 2. **Add them to your `.env`** file:
+
    ```bash
    GEMINI_API_KEY=your_first_key
    GEMINI_API_KEY_2=your_second_key
@@ -183,6 +204,7 @@ To avoid rate limiting and "model overloaded" errors, you can configure multiple
    - 500ms delay between fallback attempts
 
 **Benefits:**
+
 - No more "AI analysis temporarily unavailable" errors
 - Higher throughput for scans
 - Better reliability during peak usage
@@ -222,6 +244,7 @@ npm run build
 ## Recent Updates
 
 ### Multiple Gemini API Keys & Improvements (Latest)
+
 - **Multiple API Key Support**: Add unlimited fallback Gemini API keys to prevent rate limiting
 - **Enhanced URL Validation**: Blocks invalid URLs, local/private IPs, non-HTTP(S) protocols
 - **User-Based Rate Limiting**: Rate limits now track by user ID instead of IP
@@ -230,12 +253,22 @@ npm run build
 - **Database Auto-Retry**: Automatic reconnection with exponential backoff (5 retries)
 
 ### Enhanced Error Handling
+
 - Improved error messages for better debugging
 - Detailed error messages for "Failed to fetch" errors
 - Better authentication error handling
 - Rate limit detection and user-friendly messages
 
+### Authentication Improvements
+
+- **Forgot Password Flow**: Complete password recovery with email reset links
+- **Password Reset Security**: Secure token-based password reset with expiration
+- **OTP Bypass for Reset Users**: Skip OTP verification for 24 hours after password reset
+- **Inline UI Messages**: Replaced browser alerts with inline success/error messages in auth pages
+- **Enhanced UX**: Loading states, auto-redirects and better user feedback
+
 ### Observatory Integration
+
 - Integrated Mozilla Observatory API v2 into combined scan
 - Displays security configuration grade (A+ to F)
 - Shows security header analysis
@@ -245,6 +278,7 @@ npm run build
 ## Troubleshooting
 
 If you encounter "Analysis failed: Failed to fetch" error:
+
 1. Ensure backend is running on http://localhost:3001
 2. Check backend health: http://localhost:3001/health
 3. Verify you're logged in
@@ -255,6 +289,7 @@ If you encounter "Analysis failed: Failed to fetch" error:
 
 ISC
 
-## Important commands to run the code 
+## Important commands to run the code
+
 npm install --save-dev nodemon
 npm install express mongoose bcryptjs jsonwebtoken cookie-parser dotenv cors
