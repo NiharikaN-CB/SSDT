@@ -21,7 +21,7 @@ const Profile = () => {
     }
 
     try {
-      const res = await fetch('http://localhost:3001/api/profile', {
+      const res = await fetch('/api/profile', {
         headers: {
           'x-auth-token': token
         }
@@ -62,7 +62,7 @@ const Profile = () => {
     const token = localStorage.getItem('token');
 
     try {
-      const res = await fetch('http://localhost:3001/api/profile', {
+      const res = await fetch('/api/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -98,7 +98,7 @@ const Profile = () => {
     const token = localStorage.getItem('token');
 
     try {
-      const res = await fetch('http://localhost:3001/api/profile/upgrade-to-pro', {
+      const res = await fetch('/api/profile/upgrade-to-pro', {
         method: 'POST',
         headers: {
           'x-auth-token': token

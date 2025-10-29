@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const path = require('path');
 const cors = require('cors');
 const connectDB = require('./db');
 const { apiLimiter, authLimiter, scanLimiter } = require('./middleware/rateLimiter');
@@ -25,7 +26,7 @@ app.set('trust proxy', 1);
 
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: process.env.CLIENT_URL || ['http://localhost:3000', 'https://*.ngrok.io', 'https://*.ngrok-free.app', 'https://*.ngrok-free.dev' ],
   credentials: true
 }));
 app.use(express.json({ extended: false, limit: '10mb' }));
@@ -36,6 +37,9 @@ app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);
   next();
 });
+
+// Serve static files from the React app build directory
+app.use(express.static(path.join(__dirname, '../frontend/build')));
 
 // Apply rate limiters to routes
 app.use('/auth', authLimiter, require('./routes/auth'));
@@ -50,6 +54,15 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
   });
+});
+
+// Catch all handler: send back React's index.html file for any non-API routes
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api/') && !req.path.startsWith('/auth/') && req.path !== '/health') {
+    res.sendFile(path.join(__dirname, '../frontend/build/index.html'));
+  } else {
+    next();
+  }
 });
 
 // 404 handler

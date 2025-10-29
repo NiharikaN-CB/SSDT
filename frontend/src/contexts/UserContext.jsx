@@ -25,7 +25,7 @@ export const UserProvider = ({ children }) => {
     }
 
     try {
-      const res = await fetch('http://localhost:3001/api/profile', {
+      const res = await fetch('/api/profile', {
         headers: {
           'x-auth-token': token
         }

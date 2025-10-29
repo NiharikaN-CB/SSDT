@@ -59,7 +59,7 @@ const Hero = () => {
       setLoadingStage('Submitting URL to security scanners...');
 
       // 1. Send URL for combined analysis (VirusTotal + PageSpeed + Gemini)
-      const res = await fetch('http://localhost:3001/api/vt/combined-url-scan', {
+      const res = await fetch('/api/vt/combined-url-scan', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -111,7 +111,7 @@ const Hero = () => {
 
         try {
           const analysisRes = await fetch(
-            `http://localhost:3001/api/vt/combined-analysis/${analysisId}`,
+            `/api/vt/combined-analysis/${analysisId}`,
             {
               headers: {
                 'x-auth-token': token
