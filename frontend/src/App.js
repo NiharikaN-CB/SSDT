@@ -9,6 +9,8 @@ import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import OTPVerification from './pages/auth/OTPVerification';
+import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
+import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import Profile from './pages/Profile';
 // Translation imports
 import { TranslationProvider } from './contexts/TranslationContext';
@@ -39,6 +41,8 @@ function AppContent() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/verify-otp" element={<OTPVerification />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
             <Route path="/profile" element={<Profile />} />
           </Routes>
         </BrowserRouter>

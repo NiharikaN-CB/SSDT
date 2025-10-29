@@ -60,7 +60,58 @@ const sendOTPEmail = async (email, otp) => {
   }
 };
 
+const crypto = require('crypto');
+
+// Send reset password email
+const sendResetPasswordEmail = async (email, resetToken) => {
+  const resetUrl = `http://localhost:3000/reset-password/${resetToken}`;
+
+  const mailOptions = {
+    to: email,
+    subject: 'Password Reset Request - SSDT',
+    html: `
+      <div style="font-family: Arial, Helvetica, sans-serif; max-width: 600px; margin: 20px auto; background-color: #0a0f18; padding: 30px; border-radius: 8px; border: 1px solid #2a3b5f;">
+        
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h1 style="color: #00E0FF; margin: 0; font-size: 36px; letter-spacing: 2px; font-weight: bold;">SSDT</h1>
+          <p style="color: #999; font-size: 14px; margin: 5px 0 0 0;">Security Scanner Detection Tool</p>
+        </div>
+    
+        <div style="padding: 20px; background-color: #101827; border-radius: 5px;">
+          <h2 style="color: #ffffff; text-align: left; margin-top: 0;">Password Reset Request</h2>
+          
+          <p style="font-size: 16px; line-height: 1.5; color: #f0f0f0;">Hello,</p>
+          
+          <p style="font-size: 16px; line-height: 1.5; color: #f0f0f0;">You have requested to reset your password. Click the button below to reset your password:</p>
+          
+          <div style="text-align: center; margin: 25px 0;">
+            <a href="${resetUrl}" style="background-color: #00E0FF; color: #000000; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Reset Password</a>
+          </div>
+          
+          <p style="font-size: 16px; line-height: 1.5; color: #f0f0f0;">This link will expire in 1 hour.</p>
+          
+          <p style="font-size: 14px; color: #999999;">If you did not request this password reset, please ignore this email. Your password will remain unchanged.</p>
+        </div>
+
+        <div style="text-align: center; padding-top: 20px;">
+          <p style="font-size: 14px; color: #999999; margin: 0;">Best regards,<br>Your SSDT Team</p>
+        </div>
+        
+      </div>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`Password reset email sent to ${email}`);
+  } catch (error) {
+    console.error('Error sending password reset email:', error);
+    throw error;
+  }
+};
+
 module.exports = {
   generateOTP,
   sendOTPEmail,
+  sendResetPasswordEmail,
 };

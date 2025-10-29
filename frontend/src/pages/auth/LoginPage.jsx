@@ -20,9 +20,16 @@ const LoginPage = () => {
       });
       const data = await response.json();
       if (response.ok) {
-        alert(data.message);
-        // Navigate to OTP verification page with email
-        navigate('/verify-otp', { state: { email } });
+        if (data.token) {
+          // Direct login success (password reset user)
+          localStorage.setItem('token', data.token);
+          alert(data.message);
+          navigate('/'); // Redirect to dashboard/home
+        } else {
+          // Normal flow: OTP required
+          alert(data.message);
+          navigate('/verify-otp', { state: { email } });
+        }
       } else {
         alert(`Error: ${data.message}`);
       }
@@ -65,6 +72,9 @@ const LoginPage = () => {
             </form>
             <p className="auth-switch-link">
               New user? <Link to="/register">Register now</Link>
+            </p>
+            <p className="auth-switch-link">
+              <Link to="/forgot-password">Forgot Password?</Link>
             </p>
           </div>
         </div>

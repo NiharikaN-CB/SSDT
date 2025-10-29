@@ -4,7 +4,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
-const { generateOTP, sendOTPEmail } = require('../services/emailService');
+const { generateOTP, sendOTPEmail, sendResetPasswordEmail } = require('../services/emailService');
+const crypto = require('crypto');
 
 // Validate JWT_SECRET
 if (!process.env.JWT_SECRET) {
@@ -129,28 +130,71 @@ router.post('/login', async (req, res) => {
 
     console.log(`User credentials verified: ${email}`);
 
-    // Generate OTP
-    const otp = generateOTP();
-    user.otp = otp;
-    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-    await user.save();
+    // Check if user recently reset password (within last 24 hours)
+    const recentlyResetPassword = user.passwordResetAt &&
+      (new Date() - user.passwordResetAt) < (24 * 60 * 60 * 1000); // 24 hours
 
-    // Send OTP email
-    try {
-      await sendOTPEmail(user.email, otp);
-      res.json({
-        message: 'Credentials verified. Please check your email for the verification code.',
+    if (recentlyResetPassword) {
+      // Skip OTP verification for recently reset passwords
+      console.log(`Skipping OTP for user who recently reset password: ${email}`);
+
+      // Mark as verified and update login time
+      user.isVerified = true;
+      user.lastLoginAt = new Date();
+      await user.save();
+
+      // Create and return JWT directly
+      const payload = {
         user: {
-          id: user.id,
-          name: user.name,
-          email: user.email
+          id: user.id
         }
-      });
-    } catch (emailError) {
-      console.error('Email sending error:', emailError);
-      res.status(500).json({
-        message: 'Credentials verified, but there was an issue sending the verification email. Please try again.',
-      });
+      };
+
+      jwt.sign(
+        payload,
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' },
+        (err, token) => {
+          if (err) {
+            console.error(' JWT signing error:', err);
+            throw err;
+          }
+          res.json({
+            message: 'Login successful. Password reset verified.',
+            token,
+            user: {
+              id: user.id,
+              name: user.name,
+              email: user.email,
+              isVerified: user.isVerified
+            }
+          });
+        }
+      );
+    } else {
+      // Normal flow: Generate OTP
+      const otp = generateOTP();
+      user.otp = otp;
+      user.otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      await user.save();
+
+      // Send OTP email
+      try {
+        await sendOTPEmail(user.email, otp);
+        res.json({
+          message: 'Credentials verified. Please check your email for the verification code.',
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email
+          }
+        });
+      } catch (emailError) {
+        console.error('Email sending error:', emailError);
+        res.status(500).json({
+          message: 'Credentials verified, but there was an issue sending the verification email. Please try again.',
+        });
+      }
     }
   } catch (err) {
     console.error(' Login error:', err.message);
@@ -302,6 +346,111 @@ router.post('/resend-otp', async (req, res) => {
     }
   } catch (err) {
     console.error('OTP resend error:', err.message);
+    res.status(500).json({
+      message: 'Server error',
+      error: err.message
+    });
+  }
+});
+
+// @route   POST /auth/forgot-password
+// @desc    Send password reset email
+// @access  Public
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    console.log('Password reset request:', { email });
+
+    // Validate input
+    if (!email) {
+      return res.status(400).json({
+        message: 'Please provide email'
+      });
+    }
+
+    // Find user
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(400).json({ message: 'User not found' });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await user.save();
+
+    // Send reset password email
+    try {
+      await sendResetPasswordEmail(user.email, resetToken);
+      res.json({
+        message: 'Password reset email sent successfully. Please check your email.'
+      });
+    } catch (emailError) {
+      console.error('Email sending error:', emailError);
+      res.status(500).json({
+        message: 'There was an issue sending the password reset email. Please try again later.',
+      });
+    }
+  } catch (err) {
+    console.error('Forgot password error:', err.message);
+    res.status(500).json({
+      message: 'Server error',
+      error: err.message
+    });
+  }
+});
+
+// @route   POST /auth/reset-password
+// @desc    Reset password with token
+// @access  Public
+router.post('/reset-password', async (req, res) => {
+  const { token, password } = req.body;
+
+  try {
+    console.log('Password reset attempt');
+
+    // Validate input
+    if (!token || !password) {
+      return res.status(400).json({
+        message: 'Please provide token and new password'
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+
+    // Find user by reset token
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired reset token' });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(password, salt);
+
+    // Clear reset token and set password reset timestamp
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    user.passwordResetAt = new Date();
+    await user.save();
+
+    console.log(`Password reset successful for user: ${user.email}`);
+
+    res.json({
+      message: 'Password reset successfully. You can now login with your new password.'
+    });
+  } catch (err) {
+    console.error('Reset password error:', err.message);
     res.status(500).json({
       message: 'Server error',
       error: err.message

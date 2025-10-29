@@ -24,6 +24,12 @@ const UserSchema = new mongoose.Schema({
   otpExpires: {
     type: Date,
   },
+  resetPasswordToken: {
+    type: String,
+  },
+  resetPasswordExpires: {
+    type: Date,
+  },
   // Account type - defaults to 'free'
   accountType: {
     type: String,
@@ -55,6 +61,11 @@ const UserSchema = new mongoose.Schema({
   lastLoginAt: {
     type: Date,
     default: Date.now
+  },
+  // Track password reset timestamp for skipping OTP
+  passwordResetAt: {
+    type: Date,
+    default: null
   }
 });
 
