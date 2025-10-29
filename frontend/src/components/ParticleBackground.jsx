@@ -1,8 +1,10 @@
 import React, { useRef, useEffect } from 'react';
+import { useUser } from '../contexts/UserContext';
 import '../styles/ParticleBackground.scss';
 
 const ParticleBackground = () => {
   const canvasRef = useRef(null);
+  const { isPro } = useUser();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -53,7 +55,7 @@ const ParticleBackground = () => {
       draw() {
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2, false);
-        ctx.fillStyle = '#00b0c6';
+        ctx.fillStyle = isPro ? '#c084fc' : '#00b0c6';
         ctx.fill();
       }
 
@@ -131,7 +133,10 @@ const ParticleBackground = () => {
           // Draw lines between nearby particles
           if (distance < 120) { // Fixed distance
             let opacity = 1 - (distance / 120);
-            ctx.strokeStyle = `rgba(0, 176, 198, ${opacity * 0.5})`;
+            // Purple for pro users: rgba(192, 132, 252, opacity), Cyan for regular users
+            ctx.strokeStyle = isPro
+              ? `rgba(192, 132, 252, ${opacity * 0.5})`
+              : `rgba(0, 176, 198, ${opacity * 0.5})`;
             ctx.lineWidth = 0.7;
             ctx.beginPath();
             ctx.moveTo(particlesArray[a].x, particlesArray[a].y);
@@ -157,7 +162,7 @@ const ParticleBackground = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('resize', handleResize);
     };
-  }, []);
+  }, [isPro]);
 
   return <canvas ref={canvasRef} className="particle-canvas" />;
 };

@@ -12,9 +12,13 @@ import OTPVerification from './pages/auth/OTPVerification';
 import Profile from './pages/Profile';
 // Translation imports
 import { TranslationProvider } from './contexts/TranslationContext';
+import { UserProvider, useUser } from './contexts/UserContext';
 
-function App() {
+function AppContent() {
   const [showSplash, setShowSplash] = useState(true);
+  const { isPro, loading } = useUser();
+
+  console.log('🎨 App: isPro =', isPro, ', loading =', loading);
 
   const handleSplashComplete = () => {
     setShowSplash(false);
@@ -25,19 +29,29 @@ function App() {
     return <SplashScreen onEnter={handleSplashComplete} />;
   }
 
-  // Show main application after splash
+  // Show main application after splash with PRO theme if applicable
   return (
-    <TranslationProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/verify-otp" element={<OTPVerification />} />
-          <Route path="/profile" element={<Profile />} />
-        </Routes>
-      </BrowserRouter>
-    </TranslationProvider>
+    <div className={isPro ? 'pro-theme' : ''}>
+      <TranslationProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/verify-otp" element={<OTPVerification />} />
+            <Route path="/profile" element={<Profile />} />
+          </Routes>
+        </BrowserRouter>
+      </TranslationProvider>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <UserProvider>
+      <AppContent />
+    </UserProvider>
   );
 }
 

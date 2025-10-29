@@ -1,4 +1,5 @@
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 
 // General API rate limiter (100 requests per 15 minutes)
 // Now uses user-based limiting for authenticated routes, falls back to IP for unauthenticated
@@ -13,7 +14,7 @@ const apiLimiter = rateLimit({
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
   // Use user ID if authenticated, otherwise fall back to IP
   keyGenerator: (req) => {
-    return req.user?.id || req.ip;
+    return req.user?.id || ipKeyGenerator(req);
   },
   handler: (req, res) => {
     const identifier = req.user?.id ? `User ${req.user.id}` : `IP ${req.ip}`;
@@ -58,7 +59,7 @@ const scanLimiter = rateLimit({
   legacyHeaders: false,
   // Use user ID for authenticated requests (scan routes are protected)
   keyGenerator: (req) => {
-    return req.user?.id || req.ip;
+    return req.user?.id || ipKeyGenerator(req);
   },
   handler: (req, res) => {
     const identifier = req.user?.id ? `User ${req.user.id}` : `IP ${req.ip}`;
@@ -83,7 +84,7 @@ const combinedScanLimiter = rateLimit({
   legacyHeaders: false,
   // Use user ID for authenticated requests
   keyGenerator: (req) => {
-    return req.user?.id || req.ip;
+    return req.user?.id || ipKeyGenerator(req);
   },
   handler: (req, res) => {
     const identifier = req.user?.id ? `User ${req.user.id}` : `IP ${req.ip}`;

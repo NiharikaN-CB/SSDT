@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useUser } from '../contexts/UserContext';
 import ParticleBackground from './ParticleBackground';
 import '../styles/SplashScreen.scss';
 
 const SplashScreen = ({ onEnter }) => {
   const [showButton, setShowButton] = useState(true);
+  const { isPro } = useUser();
 
   const handleEnter = () => {
     // Play the sound
@@ -24,7 +26,7 @@ const SplashScreen = ({ onEnter }) => {
   };
 
   return (
-    <div id="splash-screen">
+    <div id="splash-screen" className={isPro ? 'pro-splash' : ''}>
       <ParticleBackground />
       <div className="splash-content">
         <img

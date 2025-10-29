@@ -4,12 +4,14 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
 import LanguageToggle from './LanguageToggle';
+import { useUser } from '../contexts/UserContext';
 import '../styles/Header.scss';
 import logo from '../assets/logo.svg';
 
 const Header = () => {
   const navigate = useNavigate();
   const token = localStorage.getItem('token');
+  const { isPro } = useUser();
 
   const handleLogout = () => {
     localStorage.removeItem('token'); // Clear the token
@@ -32,6 +34,7 @@ const Header = () => {
           <>
             <Link to="/profile" className="profile-button">
               Profile
+              {isPro && <span className="pro-badge-header">PRO ⚡</span>}
             </Link>
             <button onClick={handleLogout} className="logout-button">
               Logout

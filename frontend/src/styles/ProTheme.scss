@@ -1,0 +1,727 @@
+// ===================================
+// NEON PURPLE PRO THEME
+// Exclusive theme for PRO users
+// ===================================
+
+.pro-theme {
+  // Neon Purple Color Palette
+  --neon-purple-primary: #a855f7;
+  --neon-purple-bright: #c084fc;
+  --neon-purple-dark: #7c3aed;
+  --neon-purple-darker: #6d28d9;
+  --neon-purple-glow: rgba(168, 85, 247, 0.5);
+  --neon-purple-glow-strong: rgba(168, 85, 247, 0.8);
+  --neon-purple-bg: rgba(26, 11, 46, 0.3);
+  --neon-purple-bg-light: rgba(45, 27, 78, 0.5);
+  --neon-purple-bg-lighter: rgba(61, 43, 94, 0.6);
+  --neon-purple-text: #e9d5ff;
+  --neon-purple-text-bright: #ffffff;
+
+  // Transparent background to let particles show through
+  background: transparent !important;
+  min-height: 100vh;
+  color: var(--neon-purple-text) !important;
+
+  // Global text color override
+  * {
+    color: var(--neon-purple-text);
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--neon-purple-text-bright) !important;
+    text-shadow: 0 0 10px var(--neon-purple-glow);
+  }
+
+  // ===================================
+  // BUTTONS - ALL NEON PURPLE
+  // ===================================
+  button,
+  .btn,
+  .neon-button,
+  .btn-primary,
+  .btn-secondary,
+  .btn-success,
+  .btn-danger,
+  .btn-warning,
+  .btn-info,
+  input[type="submit"],
+  input[type="button"],
+  .btn-edit,
+  .btn-save,
+  .btn-cancel,
+  .btn-upgrade,
+  .signup-button,
+  .logout-button,
+  .profile-button,
+  .analyze-form button {
+    // Match Edit Profile button exactly
+    padding: 0.6rem 1.5rem !important;
+    border-radius: 10px !important;
+    font-size: 0.9rem !important;
+    font-weight: 700 !important;
+    font-family: 'Orbitron', var(--font-sans) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1.5px !important;
+    position: relative !important;
+    overflow: hidden !important;
+
+    background: transparent !important;
+    color: var(--neon-purple-bright) !important;
+    border: 2px solid var(--neon-purple-bright) !important;
+    box-shadow:
+      0 0 20px var(--neon-purple-glow),
+      0 0 40px var(--neon-purple-glow) !important;
+    transition: all 0.2s ease !important;
+    cursor: pointer !important;
+
+    &:hover:not(:disabled) {
+      background: var(--neon-purple-bright) !important;
+      color: #000 !important;
+      box-shadow:
+        0 0 30px var(--neon-purple-glow-strong),
+        0 0 60px var(--neon-purple-glow-strong) !important;
+      transform: translateY(-2px) !important;
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0) !important;
+      background: var(--neon-purple-primary) !important;
+    }
+
+    &:disabled {
+      opacity: 0.5 !important;
+      cursor: not-allowed !important;
+    }
+  }
+
+  // Special style for upgrade button - filled gradient
+  .btn-upgrade {
+    background: linear-gradient(135deg, var(--neon-purple-primary), var(--neon-purple-dark)) !important;
+    color: var(--neon-purple-text-bright) !important;
+    padding: 1rem 2rem !important;
+    font-size: 1.1rem !important;
+    width: 100% !important;
+    margin-top: 1rem !important;
+    box-shadow: 0 0 15px rgba(168, 85, 247, 0.3) !important;
+
+    &:hover:not(:disabled) {
+      background: linear-gradient(135deg, var(--neon-purple-bright), var(--neon-purple-primary)) !important;
+      color: var(--neon-purple-text-bright) !important;
+    }
+  }
+
+  // ===================================
+  // CARDS & CONTAINERS
+  // ===================================
+  .card,
+  .profile-section,
+  .scan-result,
+  .info-card,
+  .stat-card,
+  .scan-item,
+  .security-card,
+  .performance-card,
+  .ai-card,
+  .observatory-card {
+    background: rgba(26, 11, 46, 0.7) !important;
+    backdrop-filter: blur(10px) !important;
+    border: 2px solid var(--neon-purple-primary) !important;
+    box-shadow:
+      0 0 30px var(--neon-purple-glow),
+      inset 0 0 20px rgba(168, 85, 247, 0.1) !important;
+    color: var(--neon-purple-text) !important;
+
+    h1, h2, h3, h4, h5, h6, p, span, div, label {
+      color: var(--neon-purple-text) !important;
+    }
+  }
+
+  // Profile info items and field borders
+  .profile-info,
+  .profile-info-item,
+  .profile-field,
+  .info-item,
+  .profile-details {
+    border-color: var(--neon-purple-primary) !important;
+  }
+
+  // Individual info rows with borders
+  .info-row {
+    border-color: var(--neon-purple-primary) !important;
+    border-bottom: 1px solid var(--neon-purple-primary) !important;
+
+    &:hover {
+      border-color: var(--neon-purple-bright) !important;
+      box-shadow: 0 0 10px var(--neon-purple-glow) !important;
+    }
+
+    label {
+      color: var(--neon-purple-text) !important;
+    }
+
+    span {
+      color: var(--neon-purple-text-bright) !important;
+    }
+  }
+
+  // Profile container main border
+  .profile-container {
+    border: 2px solid var(--neon-purple-primary) !important;
+    box-shadow:
+      0 0 40px var(--neon-purple-glow),
+      inset 0 0 30px rgba(168, 85, 247, 0.1) !important;
+  }
+
+  // Stats grid cards
+  .stats-grid {
+    .stat-card {
+      border: 2px solid var(--neon-purple-primary) !important;
+      background: rgba(26, 11, 46, 0.6) !important;
+      box-shadow:
+        0 0 20px var(--neon-purple-glow),
+        inset 0 0 15px rgba(168, 85, 247, 0.1) !important;
+
+      &:hover {
+        border-color: var(--neon-purple-bright) !important;
+        box-shadow:
+          0 0 30px var(--neon-purple-glow-strong),
+          inset 0 0 20px rgba(168, 85, 247, 0.2) !important;
+        transform: translateY(-2px);
+      }
+
+      .stat-value {
+        color: var(--neon-purple-bright) !important;
+        text-shadow: 0 0 10px var(--neon-purple-glow);
+      }
+
+      .stat-label {
+        color: var(--neon-purple-text) !important;
+      }
+    }
+  }
+
+  // ===================================
+  // HEADER
+  // ===================================
+  header,
+  .header,
+  nav,
+  .header-container {
+    background: rgba(26, 11, 46, 0.8) !important;
+    backdrop-filter: blur(10px) !important;
+    border-bottom: 2px solid var(--neon-purple-primary) !important;
+    box-shadow: 0 5px 30px var(--neon-purple-glow) !important;
+
+    a, span, h1, h2, h3 {
+      color: var(--neon-purple-text-bright) !important;
+      text-shadow: 0 0 10px var(--neon-purple-glow);
+    }
+
+    .logo {
+      filter:
+        brightness(0) saturate(100%)
+        invert(45%) sepia(95%) saturate(3500%) hue-rotate(250deg) brightness(100%) contrast(95%)
+        drop-shadow(0 0 15px var(--neon-purple-glow))
+        drop-shadow(0 0 30px var(--neon-purple-glow));
+      animation: logo-pulse 3s ease-in-out infinite;
+    }
+
+    // Specific override for header buttons
+    .signup-button,
+    .logout-button,
+    .profile-button {
+      background: transparent !important;
+      color: var(--neon-purple-bright) !important;
+      border: 2px solid var(--neon-purple-bright) !important;
+      box-shadow:
+        0 0 20px var(--neon-purple-glow),
+        0 0 40px var(--neon-purple-glow) !important;
+
+      &:hover {
+        background: var(--neon-purple-bright) !important;
+        color: #000 !important;
+        border-color: var(--neon-purple-bright) !important;
+        box-shadow:
+          0 0 30px var(--neon-purple-glow-strong),
+          0 0 60px var(--neon-purple-glow-strong) !important;
+      }
+
+      &:active {
+        background: var(--neon-purple-primary) !important;
+        transform: translateY(0) !important;
+      }
+    }
+  }
+
+  @keyframes logo-pulse {
+    0%, 100% {
+      filter:
+        brightness(0) saturate(100%)
+        invert(45%) sepia(95%) saturate(3500%) hue-rotate(250deg) brightness(100%) contrast(95%)
+        drop-shadow(0 0 15px var(--neon-purple-glow))
+        drop-shadow(0 0 30px var(--neon-purple-glow));
+    }
+    50% {
+      filter:
+        brightness(0) saturate(100%)
+        invert(45%) sepia(95%) saturate(3500%) hue-rotate(250deg) brightness(110%) contrast(95%)
+        drop-shadow(0 0 25px var(--neon-purple-glow-strong))
+        drop-shadow(0 0 50px var(--neon-purple-glow-strong));
+    }
+  }
+
+  // ===================================
+  // INPUTS & FORMS
+  // ===================================
+  input,
+  textarea,
+  select,
+  .input-field,
+  .edit-input,
+  .edit-textarea {
+    background: rgba(26, 11, 46, 0.6) !important;
+    backdrop-filter: blur(10px) !important;
+    border: 2px solid var(--neon-purple-primary) !important;
+    color: var(--neon-purple-text-bright) !important;
+    box-shadow:
+      0 0 15px var(--neon-purple-glow),
+      inset 0 0 10px rgba(168, 85, 247, 0.1) !important;
+
+    &::placeholder {
+      color: var(--neon-purple-text) !important;
+      opacity: 0.7;
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--neon-purple-bright) !important;
+      box-shadow:
+        0 0 25px var(--neon-purple-glow-strong),
+        inset 0 0 15px rgba(168, 85, 247, 0.2) !important;
+    }
+  }
+
+  // ===================================
+  // BADGES & LABELS
+  // ===================================
+  .badge,
+  .pro-badge,
+  .label,
+  .tag,
+  .account-type {
+    background: var(--neon-purple-primary) !important;
+    color: var(--neon-purple-text-bright) !important;
+    border: 1px solid var(--neon-purple-bright) !important;
+    box-shadow: 0 0 15px var(--neon-purple-glow) !important;
+    text-shadow: 0 0 5px var(--neon-purple-glow);
+  }
+
+  .account-type.pro {
+    animation: neon-pulse 2s ease-in-out infinite;
+  }
+
+  // PRO Badge in Header - Extra Special
+  .pro-badge-header {
+    display: inline-block !important;
+    margin-left: 8px !important;
+    padding: 4px 10px !important;
+    background: linear-gradient(135deg, var(--neon-purple-primary), var(--neon-purple-bright)) !important;
+    color: var(--neon-purple-text-bright) !important;
+    border: 1px solid var(--neon-purple-bright) !important;
+    border-radius: 12px !important;
+    font-size: 0.7rem !important;
+    font-weight: 700 !important;
+    font-family: 'Orbitron', var(--font-sans) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+    box-shadow:
+      0 0 15px var(--neon-purple-glow),
+      0 0 30px var(--neon-purple-glow) !important;
+    animation: neon-pulse 2s ease-in-out infinite !important;
+    text-shadow: none !important;
+  }
+
+  // Keep PRO badge styled even when parent button is hovered
+  .profile-button:hover .pro-badge-header {
+    background: linear-gradient(135deg, var(--neon-purple-primary), var(--neon-purple-bright)) !important;
+    color: var(--neon-purple-text-bright) !important;
+  }
+
+  // ===================================
+  // LINKS
+  // ===================================
+  a {
+    color: var(--neon-purple-bright) !important;
+    text-shadow: 0 0 5px var(--neon-purple-glow);
+
+    &:hover {
+      color: var(--neon-purple-text-bright) !important;
+      text-shadow: 0 0 15px var(--neon-purple-glow-strong);
+    }
+  }
+
+  // ===================================
+  // LOADING & PROGRESS
+  // ===================================
+  .loading,
+  .spinner,
+  .progress-bar {
+    border-color: var(--neon-purple-primary) !important;
+    color: var(--neon-purple-text-bright) !important;
+  }
+
+  .loading::after,
+  .spinner::after {
+    border-top-color: var(--neon-purple-bright) !important;
+    box-shadow: 0 0 20px var(--neon-purple-glow);
+  }
+
+  // ===================================
+  // TABLES
+  // ===================================
+  table {
+    background: rgba(26, 11, 46, 0.6) !important;
+    backdrop-filter: blur(10px) !important;
+    border: 2px solid var(--neon-purple-primary) !important;
+
+    th {
+      background: rgba(124, 58, 237, 0.5) !important;
+      color: var(--neon-purple-text-bright) !important;
+      border-bottom: 2px solid var(--neon-purple-bright) !important;
+    }
+
+    td {
+      border-color: var(--neon-purple-primary) !important;
+      color: var(--neon-purple-text) !important;
+    }
+
+    tr:hover {
+      background: rgba(61, 43, 94, 0.6) !important;
+      box-shadow: 0 0 15px var(--neon-purple-glow);
+    }
+  }
+
+  // ===================================
+  // SCROLLBAR
+  // ===================================
+  ::-webkit-scrollbar {
+    width: 12px;
+    background: var(--neon-purple-bg) !important;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--neon-purple-bg-light) !important;
+    border: 1px solid var(--neon-purple-primary);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--neon-purple-primary) !important;
+    border-radius: 6px;
+    box-shadow: 0 0 10px var(--neon-purple-glow);
+
+    &:hover {
+      background: var(--neon-purple-bright) !important;
+      box-shadow: 0 0 20px var(--neon-purple-glow-strong);
+    }
+  }
+
+  // ===================================
+  // PARTICLES & BACKGROUND EFFECTS
+  // ===================================
+  .particle-canvas {
+    // Purple particles are now handled directly in ParticleBackground.jsx
+    // based on isPro state - no filter needed
+  }
+
+  // ===================================
+  // ANIMATIONS
+  // ===================================
+  @keyframes neon-pulse {
+    0%, 100% {
+      box-shadow:
+        0 0 15px var(--neon-purple-glow),
+        0 0 30px var(--neon-purple-glow);
+    }
+    50% {
+      box-shadow:
+        0 0 25px var(--neon-purple-glow-strong),
+        0 0 50px var(--neon-purple-glow-strong);
+    }
+  }
+
+  @keyframes neon-glow-border {
+    0%, 100% {
+      border-color: var(--neon-purple-primary);
+    }
+    50% {
+      border-color: var(--neon-purple-bright);
+    }
+  }
+
+  // Add pulsing animation to important elements
+  .pro-badge,
+  .account-type.pro {
+    animation: neon-pulse 2s ease-in-out infinite;
+  }
+
+  // ===================================
+  // MODALS & OVERLAYS
+  // ===================================
+  .modal,
+  .overlay,
+  .popup {
+    background: rgba(26, 11, 46, 0.85) !important;
+    backdrop-filter: blur(15px) !important;
+    border: 2px solid var(--neon-purple-primary) !important;
+    box-shadow: 0 0 50px var(--neon-purple-glow-strong) !important;
+  }
+
+  // ===================================
+  // HERO/DASHBOARD SPECIFIC
+  // ===================================
+  .hero-container,
+  .dashboard,
+  main {
+    background: transparent !important;
+  }
+
+  // X-Ray Vision highlight text
+  .hero-title .highlight {
+    color: var(--neon-purple-bright) !important;
+    text-shadow:
+      0 0 20px var(--neon-purple-glow),
+      0 0 40px var(--neon-purple-glow),
+      0 0 60px rgba(168, 85, 247, 0.3) !important;
+  }
+
+  // Analyze URL button
+  .analyze-form .input-wrapper {
+    border-color: var(--neon-purple-primary) !important;
+    background: rgba(26, 11, 46, 0.3) !important;
+
+    &:focus-within {
+      border-color: var(--neon-purple-bright) !important;
+      box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.2) !important;
+    }
+
+    input {
+      color: var(--neon-purple-text-bright) !important;
+
+      &::placeholder {
+        color: var(--neon-purple-text) !important;
+      }
+    }
+
+    button {
+      background: transparent !important;
+      color: var(--neon-purple-bright) !important;
+      border: 2px solid var(--neon-purple-bright) !important;
+      box-shadow:
+        0 0 20px var(--neon-purple-glow),
+        0 0 40px var(--neon-purple-glow) !important;
+      transition: all 0.2s ease !important;
+
+      &:hover:not(:disabled) {
+        background: var(--neon-purple-bright) !important;
+        color: #000 !important;
+        border-color: var(--neon-purple-bright) !important;
+        transform: translateY(-2px) !important;
+        box-shadow:
+          0 0 30px var(--neon-purple-glow-strong),
+          0 0 60px var(--neon-purple-glow-strong) !important;
+      }
+
+      &:active:not(:disabled) {
+        background: var(--neon-purple-primary) !important;
+        color: #000 !important;
+        transform: translateY(0) !important;
+      }
+
+      // Purple progress bar
+      &::before {
+        background-color: var(--neon-purple-bright) !important;
+      }
+
+      // Progress percentage text (black on purple)
+      .progress-percentage {
+        color: #000 !important;
+        font-weight: 700 !important;
+      }
+    }
+  }
+
+  .scan-input-container {
+    input {
+      background: rgba(26, 11, 46, 0.6) !important;
+      backdrop-filter: blur(10px) !important;
+      border: 2px solid var(--neon-purple-primary) !important;
+      color: var(--neon-purple-text-bright) !important;
+      box-shadow: 0 0 20px var(--neon-purple-glow) !important;
+    }
+  }
+
+  // ===================================
+  // STATUS INDICATORS
+  // ===================================
+  .status-success {
+    color: #7dd3fc !important;
+    text-shadow: 0 0 10px rgba(125, 211, 252, 0.5);
+  }
+
+  .status-warning {
+    color: #fcd34d !important;
+    text-shadow: 0 0 10px rgba(252, 211, 77, 0.5);
+  }
+
+  .status-error,
+  .status-danger {
+    color: #fca5a5 !important;
+    text-shadow: 0 0 10px rgba(252, 165, 165, 0.5);
+  }
+
+  // ===================================
+  // GRADE BADGES
+  // ===================================
+  .grade-badge,
+  .score-badge {
+    background: var(--neon-purple-dark) !important;
+    border: 2px solid var(--neon-purple-bright) !important;
+    color: var(--neon-purple-text-bright) !important;
+    box-shadow:
+      0 0 20px var(--neon-purple-glow),
+      inset 0 0 10px rgba(168, 85, 247, 0.2) !important;
+  }
+
+  // ===================================
+  // MAXIMUM SPECIFICITY OVERRIDES
+  // Force purple on all nav buttons
+  // ===================================
+  .header-container .signup-button,
+  .header-container .logout-button,
+  .header-container .profile-button,
+  header .signup-button,
+  header .logout-button,
+  header .profile-button {
+    background: transparent !important;
+    color: var(--neon-purple-bright) !important;
+    border: 2px solid var(--neon-purple-bright) !important;
+    box-shadow:
+      0 0 20px var(--neon-purple-glow),
+      0 0 40px var(--neon-purple-glow) !important;
+
+    &:hover {
+      background: var(--neon-purple-bright) !important;
+      color: #000 !important;
+      border-color: var(--neon-purple-bright) !important;
+      box-shadow:
+        0 0 30px var(--neon-purple-glow-strong),
+        0 0 60px var(--neon-purple-glow-strong) !important;
+      transform: translateY(-2px) !important;
+    }
+
+    &:active {
+      background: var(--neon-purple-primary) !important;
+      color: #000 !important;
+      transform: translateY(0) !important;
+    }
+  }
+
+}
+
+// ===================================
+// ULTRA-SPECIFIC BUTTON OVERRIDES
+// These rules have maximum specificity
+// ===================================
+.pro-theme .header-container .signup-button,
+.pro-theme .header-container .logout-button,
+.pro-theme .header-container .profile-button,
+.pro-theme header .signup-button,
+.pro-theme header .logout-button,
+.pro-theme header .profile-button,
+.pro-theme .signup-button,
+.pro-theme .logout-button,
+.pro-theme .profile-button {
+  background: transparent !important;
+  color: #c084fc !important;
+  border: 2px solid #c084fc !important;
+  box-shadow:
+    0 0 20px rgba(168, 85, 247, 0.5),
+    0 0 40px rgba(168, 85, 247, 0.5) !important;
+}
+
+.pro-theme .header-container .signup-button:hover,
+.pro-theme .header-container .logout-button:hover,
+.pro-theme .header-container .profile-button:hover,
+.pro-theme header .signup-button:hover,
+.pro-theme header .logout-button:hover,
+.pro-theme header .profile-button:hover,
+.pro-theme .signup-button:hover,
+.pro-theme .logout-button:hover,
+.pro-theme .profile-button:hover {
+  background: #c084fc !important;
+  color: #000 !important;
+  border-color: #c084fc !important;
+  box-shadow:
+    0 0 30px rgba(168, 85, 247, 0.8),
+    0 0 60px rgba(168, 85, 247, 0.8) !important;
+  transform: translateY(-2px) !important;
+}
+
+.pro-theme .header-container .signup-button:active,
+.pro-theme .header-container .logout-button:active,
+.pro-theme .header-container .profile-button:active,
+.pro-theme header .signup-button:active,
+.pro-theme header .logout-button:active,
+.pro-theme header .profile-button:active,
+.pro-theme .signup-button:active,
+.pro-theme .logout-button:active,
+.pro-theme .profile-button:active {
+  background: #a855f7 !important;
+  color: #000 !important;
+  transform: translateY(0) !important;
+}
+
+// ===================================
+// DARK MODE - PRO THEME
+// ===================================
+body.dark .pro-theme {
+  background: transparent !important;
+
+  .card,
+  .profile-section {
+    background: rgba(26, 11, 46, 0.8) !important;
+    backdrop-filter: blur(10px) !important;
+  }
+}
+
+// ===================================
+// LIGHT MODE - PRO THEME
+// ===================================
+body.light .pro-theme {
+  --neon-purple-bg: rgba(243, 232, 255, 0.3);
+  --neon-purple-bg-light: rgba(233, 213, 255, 0.5);
+  --neon-purple-bg-lighter: rgba(221, 214, 254, 0.6);
+  --neon-purple-text: #3b0764;
+  --neon-purple-text-bright: #4c1d95;
+
+  background: transparent !important;
+
+  * {
+    color: var(--neon-purple-text) !important;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    color: var(--neon-purple-text-bright) !important;
+  }
+
+  button,
+  .btn {
+    color: #ffffff !important;
+  }
+
+  .card,
+  .profile-section {
+    background: rgba(243, 232, 255, 0.7) !important;
+    backdrop-filter: blur(10px) !important;
+  }
+}
