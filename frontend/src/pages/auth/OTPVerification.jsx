@@ -8,6 +8,8 @@ const OTPVerification = () => {
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -23,6 +25,8 @@ const OTPVerification = () => {
   const handleVerify = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setMessage('');
+    setError('');
 
     try {
       const response = await fetch('http://localhost:3001/auth/verify-otp', {
@@ -34,14 +38,16 @@ const OTPVerification = () => {
 
       if (response.ok) {
         localStorage.setItem('token', data.token);
-        alert('Verification successful! Welcome!');
-        navigate('/'); // Redirect to dashboard/home
+        setMessage('Verification successful! Welcome!');
+        setTimeout(() => {
+          navigate('/'); // Redirect to dashboard/home
+        }, 2000);
       } else {
-        alert(`Error: ${data.message}`);
+        setError(data.message);
       }
     } catch (error) {
       console.error('OTP verification failed:', error);
-      alert('Verification failed. Please try again.');
+      setError('Verification failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -49,6 +55,8 @@ const OTPVerification = () => {
 
   const handleResend = async () => {
     setResendLoading(true);
+    setMessage('');
+    setError('');
 
     try {
       const response = await fetch('http://localhost:3001/auth/resend-otp', {
@@ -59,13 +67,13 @@ const OTPVerification = () => {
       const data = await response.json();
 
       if (response.ok) {
-        alert('OTP sent successfully. Please check your email.');
+        setMessage('OTP sent successfully. Please check your email.');
       } else {
-        alert(`Error: ${data.message}`);
+        setError(data.message);
       }
     } catch (error) {
       console.error('Resend OTP failed:', error);
-      alert('Failed to resend OTP. Please try again.');
+      setError('Failed to resend OTP. Please try again.');
     } finally {
       setResendLoading(false);
     }
@@ -107,6 +115,8 @@ const OTPVerification = () => {
                 {resendLoading ? 'Sending...' : 'Resend Code'}
               </button>
             </div>
+            {message && <p className="success-message">{message}</p>}
+            {error && <p className="error-message">{error}</p>}
             <p className="auth-switch-link">
               Wrong email? <a href="/login">Go back to login</a>
             </p>

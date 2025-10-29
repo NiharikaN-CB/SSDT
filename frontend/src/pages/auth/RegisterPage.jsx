@@ -8,10 +8,17 @@ const RegisterPage = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
+    setMessage('');
+    setError('');
+
     try {
       const response = await fetch('http://localhost:3001/auth/register', {
         method: 'POST',
@@ -20,15 +27,18 @@ const RegisterPage = () => {
       });
       const data = await response.json();
       if (response.ok) {
-        alert(data.message);
-        // Navigate to OTP verification page with email
-        navigate('/verify-otp', { state: { email } });
+        setMessage(data.message);
+        setTimeout(() => {
+          navigate('/verify-otp', { state: { email } });
+        }, 2000);
       } else {
-        alert(`Error: ${data.message}`);
+        setError(data.message);
       }
     } catch (error) {
       console.error('Registration failed:', error);
-      alert('Registration failed. Please try again later.');
+      setError('Registration failed. Please try again later.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -71,8 +81,12 @@ const RegisterPage = () => {
                   required
                 />
               </div>
-              <button type="submit">Register</button>
+              <button type="submit" disabled={loading}>
+                {loading ? 'Registering...' : 'Register'}
+              </button>
             </form>
+            {message && <p className="success-message">{message}</p>}
+            {error && <p className="error-message">{error}</p>}
             <p className="auth-switch-link">
               Have an account already? <Link to="/login">Log in</Link>
             </p>

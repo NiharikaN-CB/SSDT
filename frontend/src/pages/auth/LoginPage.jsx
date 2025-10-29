@@ -8,10 +8,17 @@ import ParticleBackground from '../../components/ParticleBackground';
 const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
+    setMessage('');
+    setError('');
+
     try {
       const response = await fetch('http://localhost:3001/auth/login', {
         method: 'POST',
@@ -23,19 +30,25 @@ const LoginPage = () => {
         if (data.token) {
           // Direct login success (password reset user)
           localStorage.setItem('token', data.token);
-          alert(data.message);
-          navigate('/'); // Redirect to dashboard/home
+          setMessage(data.message);
+          setTimeout(() => {
+            navigate('/'); // Redirect to dashboard/home
+          }, 2000);
         } else {
           // Normal flow: OTP required
-          alert(data.message);
-          navigate('/verify-otp', { state: { email } });
+          setMessage(data.message);
+          setTimeout(() => {
+            navigate('/verify-otp', { state: { email } });
+          }, 2000);
         }
       } else {
-        alert(`Error: ${data.message}`);
+        setError(data.message);
       }
     } catch (error) {
       console.error('Login failed:', error);
-      alert('Login failed. Please try again later.');
+      setError('Login failed. Please try again later.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -68,8 +81,12 @@ const LoginPage = () => {
                   required
                 />
               </div>
-              <button type="submit">Login</button>
+              <button type="submit" disabled={loading}>
+                {loading ? 'Logging in...' : 'Login'}
+              </button>
             </form>
+            {message && <p className="success-message">{message}</p>}
+            {error && <p className="error-message">{error}</p>}
             <p className="auth-switch-link">
               New user? <Link to="/register">Register now</Link>
             </p>
