@@ -18,8 +18,8 @@
     line-height: 1.2;
 
     .highlight {
-      color: #0ff;
-      text-shadow: 0 0 20px rgba(0, 255, 255, 0.5), 0 0 40px rgba(0, 255, 255, 0.3);
+      color: #005f73; /* Dark cyan for light mode */
+      text-shadow: none;
     }
   }
 
@@ -151,22 +151,30 @@
   }
 }
 
+/* Dark mode styling */
+body.dark {
+  .hero-title .highlight {
+    color: #0ff; /* Bright cyan for dark mode */
+    text-shadow: 0 0 20px rgba(0, 255, 255, 0.5), 0 0 40px rgba(0, 255, 255, 0.3);
+  }
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   .hero-container {
     padding: 1rem;
-    
+
     .hero-title {
       font-size: 2rem;
     }
-    
+
     .hero-subtitle {
       font-size: 1rem;
     }
-    
+
     .analyze-form .input-wrapper {
       flex-direction: column;
-      
+
       button {
         width: 100%;
       }
