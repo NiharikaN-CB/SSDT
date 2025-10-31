@@ -21,7 +21,7 @@ const Profile = () => {
     }
 
     try {
-      const res = await fetch('http://localhost:3001/api/profile', {
+      const res = await fetch('/api/profile', {
         headers: {
           'x-auth-token': token
         }
@@ -62,7 +62,7 @@ const Profile = () => {
     const token = localStorage.getItem('token');
 
     try {
-      const res = await fetch('http://localhost:3001/api/profile', {
+      const res = await fetch('/api/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -98,7 +98,7 @@ const Profile = () => {
     const token = localStorage.getItem('token');
 
     try {
-      const res = await fetch('http://localhost:3001/api/profile/upgrade-to-pro', {
+      const res = await fetch('/api/profile/upgrade-to-pro', {
         method: 'POST',
         headers: {
           'x-auth-token': token
@@ -107,11 +107,46 @@ const Profile = () => {
 
       const data = await res.json();
 
-      // For now, just show an alert with the response
-      alert(data.message + '\n\n' + JSON.stringify(data.proFeatures, null, 2));
+      if (data.success) {
+        alert('Successfully upgraded to Pro!\n\n' + data.message);
+        // Hard refresh the page to reflect changes immediately
+        window.location.reload();
+      } else {
+        alert(data.message || 'Failed to upgrade to Pro');
+      }
     } catch (err) {
       console.error('Upgrade error:', err);
       alert('Failed to process upgrade request');
+    }
+  };
+
+  const handleDowngradeToFree = async () => {
+    if (!window.confirm('Are you sure you want to downgrade to a Free account? You will lose access to Pro features.')) {
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+
+    try {
+      const res = await fetch('/api/profile/downgrade-to-free', {
+        method: 'POST',
+        headers: {
+          'x-auth-token': token
+        }
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        alert('Successfully downgraded to Free account.\n\n' + data.message);
+        // Hard refresh the page to reflect changes immediately
+        window.location.reload();
+      } else {
+        alert(data.message || 'Failed to downgrade to Free');
+      }
+    } catch (err) {
+      console.error('Downgrade error:', err);
+      alert('Failed to process downgrade request');
     }
   };
 
@@ -313,6 +348,12 @@ const Profile = () => {
           <div className="pro-info">
             <p>Your Pro subscription is active until:</p>
             <p className="expiry-date">{formatDate(user.proExpiresAt)}</p>
+            <button onClick={handleDowngradeToFree} className="btn-downgrade">
+              Cancel Pro & Return to Free
+            </button>
+            <p className="downgrade-note">
+              Note: This is a prototype build for testing purposes.
+            </p>
           </div>
         </div>
       )}

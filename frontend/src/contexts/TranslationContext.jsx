@@ -98,7 +98,7 @@ export const TranslationProvider = ({ children }) => {
       if (texts.length <= BATCH_SIZE) {
         setTranslationProgress(50); // Show 50% while translating single batch
 
-        const response = await fetch('http://localhost:3001/api/translate', {
+        const response = await fetch('/api/translate', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -136,7 +136,7 @@ export const TranslationProvider = ({ children }) => {
         const progressPercent = Math.round((batchNum / totalBatches) * 100);
         setTranslationProgress(progressPercent);
 
-        const response = await fetch('http://localhost:3001/api/translate', {
+        const response = await fetch('/api/translate', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
