@@ -63,7 +63,7 @@
   font-family: 'Orbitron', sans-serif;
   font-size: 1.2rem;
   font-weight: 400;
-  color: #fff;
+  color: #9adeff; /* Light cyan for non-pro users */
   letter-spacing: 3px;
   margin: 0;
   opacity: 0.8;
@@ -205,7 +205,7 @@ body.light .splash-title {
 }
 
 body.light .splash-subtitle {
-  color: var(--foreground-darker);
+  color: #9adeff; /* Light cyan for non-pro users */
 }
 
 body.light .splash-enter-btn {
@@ -251,7 +251,7 @@ body.dark .splash-title {
 }
 
 body.dark .splash-subtitle {
-  color: #fff;
+  color: #9adeff; /* Light cyan for non-pro users */
 }
 
 body.dark .splash-enter-btn {
@@ -328,8 +328,18 @@ body.light {
 
 #splash-screen.pro-splash {
   .splash-logo {
-    filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.6));
+    filter:
+      brightness(0) saturate(100%)
+      invert(45%) sepia(95%) saturate(3500%) hue-rotate(250deg) brightness(100%) contrast(95%)
+      drop-shadow(0 0 20px rgba(168, 85, 247, 0.6));
     animation: logoFloat 3s ease-in-out infinite, logoGlowPurple 2s ease-in-out infinite alternate;
+  }
+
+  .splash-logo.pro-logo {
+    filter:
+      brightness(0) saturate(100%)
+      invert(45%) sepia(95%) saturate(3500%) hue-rotate(250deg) brightness(100%) contrast(95%)
+      drop-shadow(0 0 20px rgba(168, 85, 247, 0.6));
   }
 
   .splash-title {
@@ -343,7 +353,7 @@ body.light {
   }
 
   .splash-subtitle {
-    color: #e9d5ff;
+    color: #4c1d95; /* Purple for pro users */
   }
 
   .splash-enter-btn {
@@ -380,10 +390,16 @@ body.light {
 /* Purple theme animations */
 @keyframes logoGlowPurple {
   from {
-    filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.6));
+    filter:
+      brightness(0) saturate(100%)
+      invert(45%) sepia(95%) saturate(3500%) hue-rotate(250deg) brightness(100%) contrast(95%)
+      drop-shadow(0 0 20px rgba(168, 85, 247, 0.6));
   }
   to {
-    filter: drop-shadow(0 0 30px rgba(168, 85, 247, 1));
+    filter:
+      brightness(0) saturate(100%)
+      invert(45%) sepia(95%) saturate(3500%) hue-rotate(250deg) brightness(100%) contrast(95%)
+      drop-shadow(0 0 30px rgba(168, 85, 247, 1));
   }
 }
 
