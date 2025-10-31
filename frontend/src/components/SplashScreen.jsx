@@ -32,7 +32,7 @@ const SplashScreen = ({ onEnter }) => {
         <img
           src={`${process.env.PUBLIC_URL}/logo192.png`}
           alt="SSDT Security Scanner Logo"
-          className={`splash-logo ${isPro ? 'pro-logo' : ''}`}
+          className="splash-logo"
         />
         <h1 className="splash-title">SSDT</h1>
         <p className="splash-subtitle">Security Scanner Detection Tool</p>
