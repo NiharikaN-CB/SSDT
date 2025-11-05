@@ -395,26 +395,44 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         scan.status = 'combining';
         await scan.save();
 
-        // Get PageSpeed report
-        console.log('🚀 Fetching PageSpeed report...');
-        const psiReport = await getPageSpeedReport(scan.target);
-        scan.pagespeedResult = psiReport;
+        // Run PageSpeed and Observatory in parallel for faster execution
+        console.log('🚀 Fetching PageSpeed and Observatory reports in parallel...');
 
-        // Get Observatory report (extract hostname from URL)
-        console.log('🔒 Fetching Mozilla Observatory report...');
+        // Extract hostname for Observatory
+        const hostname = new URL(scan.target).hostname;
+        console.log(`🔍 Scanning hostname: ${hostname}`);
+
+        // Execute both API calls in parallel using Promise.allSettled
+        // This allows independent error handling for each service
+        const [psiResult, obsResult] = await Promise.allSettled([
+          getPageSpeedReport(scan.target),
+          scanHost(hostname)
+        ]);
+
+        // Handle PageSpeed result
+        let psiReport = null;
+        if (psiResult.status === 'fulfilled') {
+          psiReport = psiResult.value;
+          scan.pagespeedResult = psiReport;
+          console.log('✅ PageSpeed report fetched successfully');
+        } else {
+          console.error('⚠️  PageSpeed scan failed:', psiResult.reason);
+          console.error('⚠️  Error details:', psiResult.reason?.message);
+          // Store error gracefully - don't fail entire scan
+          scan.pagespeedResult = { error: psiResult.reason?.message || 'PageSpeed scan failed' };
+        }
+
+        // Handle Observatory result
         let observatoryReport = null;
-        try {
-          const urlObj = new URL(scan.target);
-          const hostname = urlObj.hostname;
-          console.log(`🔍 Scanning hostname: ${hostname}`);
-          observatoryReport = await scanHost(hostname);
-          console.log('✅ Observatory scan result:', observatoryReport);
+        if (obsResult.status === 'fulfilled') {
+          observatoryReport = obsResult.value;
           scan.observatoryResult = observatoryReport;
-        } catch (obsError) {
-          console.error('⚠️  Observatory scan failed:', obsError);
-          console.error('⚠️  Error details:', obsError.message);
+          console.log('✅ Observatory scan result:', observatoryReport);
+        } else {
+          console.error('⚠️  Observatory scan failed:', obsResult.reason);
+          console.error('⚠️  Error details:', obsResult.reason?.message);
           // Continue even if Observatory fails - it's not critical
-          scan.observatoryResult = { error: obsError.message };
+          scan.observatoryResult = { error: obsResult.reason?.message || 'Observatory scan failed' };
         }
 
         // Generate refined report with Gemini (now includes Observatory data)

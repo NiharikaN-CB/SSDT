@@ -191,7 +191,7 @@ router.post('/upgrade-to-pro', auth, async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Successfully upgraded to Pro! (Prototype mode)',
+      message: 'Successfully upgraded to Pro!',
       user: {
         accountType: user.accountType,
         proExpiresAt: user.proExpiresAt,
@@ -234,7 +234,7 @@ router.post('/downgrade-to-free', auth, async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Successfully downgraded to Free account (Prototype mode)',
+      message: 'Successfully downgraded to Free account',
       user: {
         accountType: user.accountType,
         proExpiresAt: user.proExpiresAt,

@@ -39,7 +39,7 @@ const Hero = () => {
     // Check if user is logged in
     const token = localStorage.getItem('token');
     if (!token) {
-      alert('Please log in first to scan URLs');
+      console.log('User not logged in, redirecting to login');
       navigate('/login');
       return;
     }

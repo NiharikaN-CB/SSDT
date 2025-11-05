@@ -260,7 +260,7 @@ export const TranslationProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('Translation failed:', error);
-      alert(`Translation failed: ${error.message}\nPlease check your backend server is running.`);
+      console.error('Please check your backend server is running.');
     } finally {
       setIsTranslating(false);
       // Reset progress after a short delay to allow user to see 100%

@@ -1,0 +1,383 @@
+// Confirmation Dialog Styling
+// Supports: Light/Dark themes + Pro/Non-Pro themes
+
+.confirm-dialog-wrapper {
+  // Wrapper to hold theme classes when portaled to body
+}
+
+.confirm-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: fadeIn 0.2s ease;
+}
+
+.confirm-dialog {
+  background: var(--background-light);
+  border: 2px solid var(--outline-darker);
+  border-radius: 12px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 10px 50px rgba(0, 0, 0, 0.5);
+  animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  overflow: hidden;
+}
+
+.confirm-dialog-header {
+  padding: 1.5rem;
+  border-bottom: 2px solid var(--outline);
+  background: var(--background-lighter);
+
+  h3 {
+    margin: 0;
+    font-family: 'Orbitron', var(--font-sans);
+    font-size: 1.5rem;
+    color: var(--foreground);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+}
+
+.confirm-dialog-body {
+  padding: 2rem 1.5rem;
+
+  p {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.6;
+    color: var(--foreground-darker);
+  }
+}
+
+.confirm-dialog-footer {
+  padding: 1rem 1.5rem 1.5rem;
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.confirm-btn {
+  font-family: 'Orbitron', var(--font-sans);
+  padding: 0.75rem 2rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid;
+  background: transparent;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+// ============================
+// DARK THEME (Default/Non-Pro)
+// ============================
+.confirm-dialog-wrapper:not(.light):not(.pro-theme),
+body.dark .confirm-dialog-wrapper:not(.pro-theme) {
+  .confirm-dialog {
+    background: var(--background-light);
+    border-color: #0ff;
+    box-shadow: 0 0 30px rgba(0, 255, 255, 0.2);
+  }
+
+  .confirm-dialog-header {
+    background: var(--background-lighter);
+    border-bottom-color: #0ff;
+
+    h3 {
+      color: #0ff;
+      text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+    }
+  }
+
+  .confirm-dialog-body p {
+    color: var(--foreground);
+  }
+
+  .cancel-btn {
+    border-color: var(--outline-darker);
+    color: var(--foreground-darker);
+
+    &:hover {
+      border-color: #0ff;
+      color: #0ff;
+      box-shadow: 0 0 15px rgba(0, 255, 255, 0.3);
+    }
+  }
+
+  .confirm-action-btn {
+    border-color: #0ff;
+    color: #0ff;
+
+    &:hover {
+      background: #0ff;
+      color: #000;
+      box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+    }
+
+    &:active {
+      background: #00cccc;
+    }
+  }
+
+  // Upgrade button - green accent
+  .confirm-action-btn.upgrade {
+    border-color: #00ff88;
+    color: #00ff88;
+
+    &:hover {
+      background: #00ff88;
+      color: #000;
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+    }
+  }
+
+  // Downgrade button - red accent
+  .confirm-action-btn.downgrade {
+    border-color: #ff4466;
+    color: #ff4466;
+
+    &:hover {
+      background: #ff4466;
+      color: #fff;
+      box-shadow: 0 0 20px rgba(255, 68, 102, 0.5);
+    }
+  }
+}
+
+// ============================
+// LIGHT THEME (Non-Pro)
+// ============================
+.confirm-dialog-wrapper.light:not(.pro-theme),
+body.light .confirm-dialog-wrapper:not(.pro-theme) {
+  .confirm-dialog {
+    background: #ffffff;
+    border-color: var(--accent-dark);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  }
+
+  .confirm-dialog-header {
+    background: var(--background-lighter);
+    border-bottom-color: var(--outline);
+
+    h3 {
+      color: var(--accent-dark);
+    }
+  }
+
+  .confirm-dialog-body p {
+    color: var(--foreground);
+  }
+
+  .cancel-btn {
+    border-color: var(--outline-darker);
+    color: var(--foreground-darker);
+
+    &:hover {
+      border-color: var(--accent-dark);
+      color: var(--accent-dark);
+      background: rgba(0, 118, 142, 0.05);
+    }
+  }
+
+  .confirm-action-btn {
+    border-color: var(--accent-dark);
+    color: var(--accent-dark);
+
+    &:hover {
+      background: var(--accent-dark);
+      color: #fff;
+      box-shadow: 0 5px 15px rgba(0, 118, 142, 0.3);
+    }
+
+    &:active {
+      background: var(--accent);
+    }
+  }
+
+  // Upgrade button - green accent
+  .confirm-action-btn.upgrade {
+    border-color: #00a86b;
+    color: #00a86b;
+
+    &:hover {
+      background: #00a86b;
+      color: #fff;
+      box-shadow: 0 5px 15px rgba(0, 168, 107, 0.3);
+    }
+  }
+
+  // Downgrade button - red accent
+  .confirm-action-btn.downgrade {
+    border-color: #dc2626;
+    color: #dc2626;
+
+    &:hover {
+      background: #dc2626;
+      color: #fff;
+      box-shadow: 0 5px 15px rgba(220, 38, 38, 0.3);
+    }
+  }
+}
+
+// ============================
+// PRO THEME OVERRIDES
+// ============================
+.confirm-dialog-wrapper.pro-theme {
+  .confirm-dialog-overlay {
+    background: rgba(26, 11, 46, 0.85);
+    backdrop-filter: blur(15px);
+  }
+
+  .confirm-dialog {
+    background: rgba(26, 11, 46, 0.95) !important;
+    border: 2px solid var(--neon-purple-primary) !important;
+    box-shadow: 0 0 50px var(--neon-purple-glow-strong) !important;
+  }
+
+  .confirm-dialog-header {
+    background: rgba(45, 27, 78, 0.6) !important;
+    border-bottom-color: var(--neon-purple-bright) !important;
+
+    h3 {
+      color: var(--neon-purple-text-bright) !important;
+      text-shadow: 0 0 20px var(--neon-purple-glow) !important;
+    }
+  }
+
+  .confirm-dialog-body p {
+    color: var(--neon-purple-text) !important;
+  }
+
+  .cancel-btn {
+    border-color: var(--neon-purple-primary) !important;
+    color: var(--neon-purple-text) !important;
+
+    &:hover {
+      border-color: var(--neon-purple-bright) !important;
+      color: var(--neon-purple-text-bright) !important;
+      background: rgba(168, 85, 247, 0.1) !important;
+      box-shadow: 0 0 20px var(--neon-purple-glow) !important;
+    }
+  }
+
+  .confirm-action-btn {
+    border-color: var(--neon-purple-primary) !important;
+    color: var(--neon-purple-text-bright) !important;
+    background: linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(192, 132, 252, 0.2)) !important;
+
+    &:hover {
+      background: linear-gradient(135deg, var(--neon-purple-primary), var(--neon-purple-bright)) !important;
+      color: #fff !important;
+      box-shadow: 0 0 30px var(--neon-purple-glow-strong) !important;
+      border-color: var(--neon-purple-bright) !important;
+    }
+
+    &:active {
+      background: var(--neon-purple-dark) !important;
+    }
+  }
+
+  // Upgrade button - enhanced purple glow
+  .confirm-action-btn.upgrade {
+    &:hover {
+      box-shadow: 0 0 40px rgba(168, 85, 247, 0.9) !important;
+    }
+  }
+
+  // Downgrade button - red/purple mix
+  .confirm-action-btn.downgrade {
+    border-color: #ff6b9d !important;
+
+    &:hover {
+      background: linear-gradient(135deg, #ff6b9d, #c084fc) !important;
+      box-shadow: 0 0 30px rgba(255, 107, 157, 0.6) !important;
+    }
+  }
+
+  // Pro theme LIGHT mode adjustments
+  &.light {
+    .confirm-dialog-overlay {
+      background: rgba(243, 232, 255, 0.9);
+    }
+
+    .confirm-dialog {
+      background: rgba(250, 245, 255, 0.98) !important;
+      border-color: var(--neon-purple-primary) !important;
+      box-shadow: 0 10px 50px rgba(168, 85, 247, 0.4) !important;
+    }
+
+    .confirm-dialog-header {
+      background: rgba(243, 232, 255, 0.8) !important;
+
+      h3 {
+        color: var(--neon-purple-darker) !important;
+        text-shadow: 0 0 10px rgba(168, 85, 247, 0.3) !important;
+      }
+    }
+
+    .confirm-dialog-body p {
+      color: var(--neon-purple-text) !important;
+    }
+
+    .cancel-btn {
+      color: var(--neon-purple-dark) !important;
+
+      &:hover {
+        background: rgba(168, 85, 247, 0.1) !important;
+      }
+    }
+
+    .confirm-action-btn {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(192, 132, 252, 0.15)) !important;
+      color: var(--neon-purple-darker) !important;
+
+      &:hover {
+        background: linear-gradient(135deg, var(--neon-purple-primary), var(--neon-purple-bright)) !important;
+        color: #fff !important;
+      }
+    }
+  }
+}
+
+// ============================
+// ANIMATIONS
+// ============================
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

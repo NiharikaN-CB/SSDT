@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/header';
 import ParticleBackground from '../components/ParticleBackground';
+import ConfirmDialog from '../components/ConfirmDialog';
 import '../styles/Profile.scss';
 
 const Profile = () => {
@@ -11,6 +12,8 @@ const Profile = () => {
   const [editing, setEditing] = useState(false);
   const [formData, setFormData] = useState({ name: '', bio: '' });
   const [saveMessage, setSaveMessage] = useState('');
+  const [upgradeDialogOpen, setUpgradeDialogOpen] = useState(false);
+  const [downgradeDialogOpen, setDowngradeDialogOpen] = useState(false);
   const navigate = useNavigate();
 
   const fetchProfile = async () => {
@@ -94,7 +97,12 @@ const Profile = () => {
     }
   };
 
-  const handleUpgradeToPro = async () => {
+  const handleUpgradeToPro = () => {
+    setUpgradeDialogOpen(true);
+  };
+
+  const confirmUpgrade = async () => {
+    setUpgradeDialogOpen(false);
     const token = localStorage.getItem('token');
 
     try {
@@ -108,23 +116,23 @@ const Profile = () => {
       const data = await res.json();
 
       if (data.success) {
-        alert('Successfully upgraded to Pro!\n\n' + data.message);
+        console.log('Successfully upgraded to Pro:', data.message);
         // Hard refresh the page to reflect changes immediately
         window.location.reload();
       } else {
-        alert(data.message || 'Failed to upgrade to Pro');
+        console.log('Upgrade failed:', data.message || 'Failed to upgrade to Pro');
       }
     } catch (err) {
       console.error('Upgrade error:', err);
-      alert('Failed to process upgrade request');
     }
   };
 
-  const handleDowngradeToFree = async () => {
-    if (!window.confirm('Are you sure you want to downgrade to a Free account? You will lose access to Pro features.')) {
-      return;
-    }
+  const handleDowngradeToFree = () => {
+    setDowngradeDialogOpen(true);
+  };
 
+  const confirmDowngrade = async () => {
+    setDowngradeDialogOpen(false);
     const token = localStorage.getItem('token');
 
     try {
@@ -138,15 +146,14 @@ const Profile = () => {
       const data = await res.json();
 
       if (data.success) {
-        alert('Successfully downgraded to Free account.\n\n' + data.message);
+        console.log('Successfully downgraded to Free account:', data.message);
         // Hard refresh the page to reflect changes immediately
         window.location.reload();
       } else {
-        alert(data.message || 'Failed to downgrade to Free');
+        console.log('Downgrade failed:', data.message || 'Failed to downgrade to Free');
       }
     } catch (err) {
       console.error('Downgrade error:', err);
-      alert('Failed to process downgrade request');
     }
   };
 
@@ -359,6 +366,30 @@ const Profile = () => {
       )}
         </div>
       </main>
+
+      {/* Upgrade Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={upgradeDialogOpen}
+        onConfirm={confirmUpgrade}
+        onCancel={() => setUpgradeDialogOpen(false)}
+        title="Upgrade to Pro"
+        message="Are you sure you want to upgrade to Pro for $9.99/month? You'll unlock unlimited scans, larger file uploads (100MB), priority scanning queue, and advanced analytics reports."
+        confirmText="Upgrade Now"
+        cancelText="Cancel"
+        type="upgrade"
+      />
+
+      {/* Downgrade Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={downgradeDialogOpen}
+        onConfirm={confirmDowngrade}
+        onCancel={() => setDowngradeDialogOpen(false)}
+        title="Cancel Pro Subscription"
+        message="Are you sure you want to cancel your Pro subscription? You'll lose access to Pro features immediately, including unlimited scans, larger file uploads, and advanced analytics."
+        confirmText="Cancel Subscription"
+        cancelText="Keep Pro"
+        type="downgrade"
+      />
     </div>
   );
 };
