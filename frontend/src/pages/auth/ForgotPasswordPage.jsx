@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { getApiUrl } from '../../config/api';
 import Header from '../../components/header';
 import ParticleBackground from '../../components/ParticleBackground';
 
@@ -16,7 +17,7 @@ const ForgotPasswordPage = () => {
     setError('');
 
     try {
-      const response = await fetch('/auth/forgot-password', {
+      const response = await fetch(getApiUrl('auth/forgot-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

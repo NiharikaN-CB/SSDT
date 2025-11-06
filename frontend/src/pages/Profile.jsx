@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getApiUrl } from '../config/api';
 import Header from '../components/header';
 import ParticleBackground from '../components/ParticleBackground';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -24,7 +25,7 @@ const Profile = () => {
     }
 
     try {
-      const res = await fetch('/api/profile', {
+      const res = await fetch(getApiUrl('api/profile'), {
         headers: {
           'x-auth-token': token
         }
@@ -65,7 +66,7 @@ const Profile = () => {
     const token = localStorage.getItem('token');
 
     try {
-      const res = await fetch('/api/profile', {
+      const res = await fetch(getApiUrl('api/profile'), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -106,7 +107,7 @@ const Profile = () => {
     const token = localStorage.getItem('token');
 
     try {
-      const res = await fetch('/api/profile/upgrade-to-pro', {
+      const res = await fetch(getApiUrl('api/profile/upgrade-to-pro'), {
         method: 'POST',
         headers: {
           'x-auth-token': token
@@ -136,7 +137,7 @@ const Profile = () => {
     const token = localStorage.getItem('token');
 
     try {
-      const res = await fetch('/api/profile/downgrade-to-free', {
+      const res = await fetch(getApiUrl('api/profile/downgrade-to-free'), {
         method: 'POST',
         headers: {
           'x-auth-token': token

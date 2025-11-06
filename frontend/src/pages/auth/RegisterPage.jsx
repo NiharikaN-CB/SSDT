@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { getApiUrl } from '../../config/api';
 import Header from '../../components/header';
 import ParticleBackground from '../../components/ParticleBackground';
 import '../../styles/Auth.scss';
@@ -20,7 +21,7 @@ const RegisterPage = () => {
     setError('');
 
     try {
-      const response = await fetch('/auth/register', {
+      const response = await fetch(getApiUrl('auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),

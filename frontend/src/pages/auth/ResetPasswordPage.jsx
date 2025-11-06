@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { getApiUrl } from '../../config/api';
 import Header from '../../components/header';
 import ParticleBackground from '../../components/ParticleBackground';
 
@@ -37,7 +38,7 @@ const ResetPasswordPage = () => {
     }
 
     try {
-      const response = await fetch('/auth/reset-password', {
+      const response = await fetch(getApiUrl('auth/reset-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password }),
