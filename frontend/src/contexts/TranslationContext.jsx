@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { getApiUrl } from '../config/api';
 
 const TranslationContext = createContext();
 
@@ -98,7 +99,7 @@ export const TranslationProvider = ({ children }) => {
       if (texts.length <= BATCH_SIZE) {
         setTranslationProgress(50); // Show 50% while translating single batch
 
-        const response = await fetch('/api/translate', {
+        const response = await fetch(getApiUrl('api/translate'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -136,7 +137,7 @@ export const TranslationProvider = ({ children }) => {
         const progressPercent = Math.round((batchNum / totalBatches) * 100);
         setTranslationProgress(progressPercent);
 
-        const response = await fetch('/api/translate', {
+        const response = await fetch(getApiUrl('api/translate'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -260,7 +261,7 @@ export const TranslationProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('Translation failed:', error);
-      alert(`Translation failed: ${error.message}\nPlease check your backend server is running.`);
+      console.error('Please check your backend server is running.');
     } finally {
       setIsTranslating(false);
       // Reset progress after a short delay to allow user to see 100%

@@ -30,7 +30,7 @@ const scanResultSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['queued', 'pending', 'combining', 'completed', 'failed'],
+    enum: ['queued', 'pending', 'processing', 'combining', 'completed', 'failed'],
     default: 'queued'
   },
   userId: {

@@ -577,6 +577,50 @@
     }
   }
 
+  // Report container - match input wrapper border
+  .report-container {
+    background: rgba(26, 11, 46, 0.7) !important;
+    backdrop-filter: blur(10px) !important;
+    border: 2px solid var(--neon-purple-primary) !important;
+    box-shadow:
+      0 0 30px var(--neon-purple-glow),
+      inset 0 0 20px rgba(168, 85, 247, 0.1) !important;
+    color: var(--neon-purple-text) !important;
+
+    // AI Report Section - override cyan border
+    .ai-report-section {
+      background: rgba(26, 11, 46, 0.6) !important;
+      border: 2px solid var(--neon-purple-primary) !important;
+      box-shadow:
+        0 0 20px var(--neon-purple-glow),
+        inset 0 0 15px rgba(168, 85, 247, 0.1) !important;
+
+      h4 {
+        color: var(--neon-purple-bright) !important;
+        text-shadow: 0 0 10px var(--neon-purple-glow);
+      }
+    }
+
+    // Combined scores cards
+    .combined-scores {
+      > div {
+        background: rgba(26, 11, 46, 0.6) !important;
+        border: 2px solid var(--neon-purple-primary) !important;
+        box-shadow:
+          0 0 15px var(--neon-purple-glow),
+          inset 0 0 10px rgba(168, 85, 247, 0.1) !important;
+
+        &:hover {
+          border-color: var(--neon-purple-bright) !important;
+          box-shadow:
+            0 0 25px var(--neon-purple-glow-strong),
+            inset 0 0 15px rgba(168, 85, 247, 0.2) !important;
+          transform: translateY(-2px);
+        }
+      }
+    }
+  }
+
   .scan-input-container {
     input {
       background: rgba(26, 11, 46, 0.6) !important;
@@ -853,6 +897,43 @@ body.light .pro-theme {
       &::placeholder {
         color: var(--neon-purple-text) !important;
         opacity: 0.5 !important;
+      }
+    }
+  }
+
+  // ===================================
+  // REPORT CONTAINER - LIGHT MODE
+  // ===================================
+  .report-container {
+    background: rgba(243, 232, 255, 0.7) !important;
+    backdrop-filter: blur(10px) !important;
+    border: 2px solid var(--neon-purple-primary) !important;
+    box-shadow: 0 2px 10px rgba(168, 85, 247, 0.1) !important;
+
+    // AI Report Section - override cyan border
+    .ai-report-section {
+      background: rgba(233, 213, 255, 0.5) !important;
+      border: 2px solid var(--neon-purple-primary) !important;
+      box-shadow: 0 2px 8px rgba(168, 85, 247, 0.1) !important;
+
+      h4 {
+        color: var(--neon-purple-dark) !important;
+        text-shadow: none !important;
+      }
+    }
+
+    // Combined scores cards
+    .combined-scores {
+      > div {
+        background: rgba(233, 213, 255, 0.4) !important;
+        border: 2px solid var(--neon-purple-primary) !important;
+        box-shadow: 0 2px 6px rgba(168, 85, 247, 0.1) !important;
+
+        &:hover {
+          border-color: var(--neon-purple-bright) !important;
+          box-shadow: 0 4px 10px rgba(168, 85, 247, 0.15) !important;
+          transform: translateY(-2px);
+        }
       }
     }
   }

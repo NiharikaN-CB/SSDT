@@ -338,7 +338,7 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
   }
 });
 
-// 6️⃣ Combined Analysis Polling (Protected route)
+// 6️⃣ Combined Analysis Polling (Protected route) - TRUE PARALLEL EXECUTION
 router.get('/combined-analysis/:id', auth, async (req, res) => {
   try {
     const { id } = req.params;
@@ -358,90 +358,167 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       });
     }
 
-    // STEP A: Check VirusTotal status
-    if (!scan.vtResult || scan.status === 'queued' || scan.status === 'pending') {
-      console.log('⏳ Checking VirusTotal status...');
+    // TRUE PARALLEL EXECUTION: Start all three APIs simultaneously on first poll
+    if (!scan.vtResult && !scan.pagespeedResult && !scan.observatoryResult && scan.status === 'queued') {
+      console.log('🚀 TRUE PARALLEL EXECUTION: Starting all three APIs simultaneously...');
 
-      const vtResp = await getAnalysis(id);
-      const vtStatus = vtResp?.data?.attributes?.status;
+      // Update status to show we're processing
+      scan.status = 'processing';
+      await scan.save();
 
-      console.log(`📋 VT Status: ${vtStatus}`);
+      try {
+        // Extract hostname for Observatory
+        const hostname = new URL(scan.target).hostname;
+        console.log(`🔍 Target URL: ${scan.target}, Hostname: ${hostname}`);
 
-      if (vtStatus === 'completed') {
-        // VT is complete, update the scan
-        scan.vtResult = vtResp;
-        scan.status = 'pending'; // Still need to get PSI and Gemini
+        // Execute all THREE API calls in parallel using Promise.allSettled
+        // This allows each service to complete independently without blocking others
+        console.log('⚡ Launching parallel API calls: VirusTotal + PageSpeed + Observatory');
+        const [vtResult, psiResult, obsResult] = await Promise.allSettled([
+          getAnalysis(id),              // VirusTotal analysis check
+          getPageSpeedReport(scan.target),  // PageSpeed Insights
+          scanHost(hostname)                // Mozilla Observatory
+        ]);
+
+        console.log('📊 All parallel API calls completed. Processing results...');
+
+        // Handle VirusTotal result
+        let vtComplete = false;
+        if (vtResult.status === 'fulfilled') {
+          const vtStatus = vtResult.value?.data?.attributes?.status;
+          console.log(`📋 VT Status: ${vtStatus}`);
+
+          if (vtStatus === 'completed') {
+            scan.vtResult = vtResult.value;
+            vtComplete = true;
+            console.log('✅ VirusTotal analysis completed');
+          } else {
+            console.log(`⏳ VirusTotal still processing: ${vtStatus}`);
+          }
+        } else {
+          console.error('⚠️  VirusTotal check failed:', vtResult.reason?.message);
+        }
+
+        // Handle PageSpeed result
+        let psiReport = null;
+        if (psiResult.status === 'fulfilled') {
+          psiReport = psiResult.value;
+          scan.pagespeedResult = psiReport;
+          console.log('✅ PageSpeed report fetched successfully');
+        } else {
+          console.error('⚠️  PageSpeed scan failed:', psiResult.reason?.message);
+          scan.pagespeedResult = { error: psiResult.reason?.message || 'PageSpeed scan failed' };
+        }
+
+        // Handle Observatory result
+        let observatoryReport = null;
+        if (obsResult.status === 'fulfilled') {
+          observatoryReport = obsResult.value;
+          scan.observatoryResult = observatoryReport;
+          console.log('✅ Observatory scan completed successfully');
+        } else {
+          console.error('⚠️  Observatory scan failed:', obsResult.reason?.message);
+          scan.observatoryResult = { error: obsResult.reason?.message || 'Observatory scan failed' };
+        }
+
+        // If VT is complete and we have PSI & Observatory results, generate AI report
+        if (vtComplete && scan.pagespeedResult && scan.observatoryResult) {
+          console.log('🤖 All data ready! Generating AI-refined report...');
+          scan.status = 'combining';
+          await scan.save();
+
+          try {
+            const aiReport = await refineReport(scan.vtResult, psiReport, observatoryReport, scan.target);
+            scan.refinedReport = aiReport;
+            scan.status = 'completed';
+            console.log('✅ Combined analysis fully completed!');
+          } catch (geminiError) {
+            console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
+            scan.refinedReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
+            scan.status = 'completed'; // Still mark as completed - we have the core data
+          }
+        } else {
+          // VT not complete yet, keep status as processing
+          scan.status = 'processing';
+          console.log('⏳ VirusTotal not ready yet, will check again on next poll');
+        }
+
         await scan.save();
-      } else {
-        // VT still pending
-        scan.status = vtStatus || 'pending';
-        await scan.save();
 
+        // Return current status
         return res.json({
           success: true,
           status: scan.status,
-          message: 'VirusTotal analysis in progress...',
-          analysisId: id
+          message: scan.status === 'completed' ? 'Analysis complete!' : 'Analysis in progress...',
+          analysisId: id,
+          vtComplete: vtComplete,
+          psiComplete: !!scan.pagespeedResult,
+          obsComplete: !!scan.observatoryResult
         });
-      }
-    }
 
-    // STEP B: If VT is complete, check if we need PSI, Observatory and Gemini
-    if (scan.vtResult && (!scan.pagespeedResult || !scan.observatoryResult || !scan.refinedReport)) {
-      console.log('🔄 VT complete. Running PageSpeed, Observatory and Gemini analysis...');
-
-      try {
-        // Update status to combining
-        scan.status = 'combining';
-        await scan.save();
-
-        // Get PageSpeed report
-        console.log('🚀 Fetching PageSpeed report...');
-        const psiReport = await getPageSpeedReport(scan.target);
-        scan.pagespeedResult = psiReport;
-
-        // Get Observatory report (extract hostname from URL)
-        console.log('🔒 Fetching Mozilla Observatory report...');
-        let observatoryReport = null;
-        try {
-          const urlObj = new URL(scan.target);
-          const hostname = urlObj.hostname;
-          console.log(`🔍 Scanning hostname: ${hostname}`);
-          observatoryReport = await scanHost(hostname);
-          console.log('✅ Observatory scan result:', observatoryReport);
-          scan.observatoryResult = observatoryReport;
-        } catch (obsError) {
-          console.error('⚠️  Observatory scan failed:', obsError);
-          console.error('⚠️  Error details:', obsError.message);
-          // Continue even if Observatory fails - it's not critical
-          scan.observatoryResult = { error: obsError.message };
-        }
-
-        // Generate refined report with Gemini (now includes Observatory data)
-        console.log('🤖 Generating AI-refined report...');
-        try {
-          const aiReport = await refineReport(scan.vtResult, psiReport, observatoryReport, scan.target);
-          scan.refinedReport = aiReport;
-        } catch (geminiError) {
-          console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
-          // Don't fail the entire scan if only Gemini fails
-          // Store a fallback message instead
-          scan.refinedReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
-        }
-
-        // Mark as completed (even if Gemini failed, we have VT, PSI, and Observatory data)
-        scan.status = 'completed';
-        await scan.save();
-
-        console.log('✅ Combined analysis completed!');
-      } catch (combineError) {
-        console.error('❌ Error in combining step:', combineError);
+      } catch (parallelError) {
+        console.error('❌ Error in parallel execution:', parallelError);
         scan.status = 'failed';
         await scan.save();
 
         return res.status(500).json({
-          error: 'Failed to complete combined analysis',
-          details: combineError.message
+          error: 'Failed to execute parallel analysis',
+          details: parallelError.message
+        });
+      }
+    }
+
+    // SUBSEQUENT POLLS: Check if VT is complete when PSI and Observatory are already done
+    if (!scan.vtResult && scan.status === 'processing') {
+      console.log('⏳ Re-checking VirusTotal status (PSI & Observatory already complete)...');
+
+      try {
+        const vtResp = await getAnalysis(id);
+        const vtStatus = vtResp?.data?.attributes?.status;
+        console.log(`📋 VT Status: ${vtStatus}`);
+
+        if (vtStatus === 'completed') {
+          scan.vtResult = vtResp;
+          console.log('✅ VirusTotal analysis completed on subsequent poll');
+
+          // Now all three are complete, generate AI report
+          console.log('🤖 Generating AI-refined report...');
+          scan.status = 'combining';
+          await scan.save();
+
+          try {
+            const psiReport = scan.pagespeedResult?.error ? null : scan.pagespeedResult;
+            const observatoryReport = scan.observatoryResult?.error ? null : scan.observatoryResult;
+            const aiReport = await refineReport(scan.vtResult, psiReport, observatoryReport, scan.target);
+            scan.refinedReport = aiReport;
+            scan.status = 'completed';
+            console.log('✅ Combined analysis fully completed!');
+          } catch (geminiError) {
+            console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
+            scan.refinedReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
+            scan.status = 'completed';
+          }
+
+          await scan.save();
+        } else {
+          // VT still pending
+          scan.status = 'processing';
+          await scan.save();
+
+          return res.json({
+            success: true,
+            status: scan.status,
+            message: 'VirusTotal analysis in progress...',
+            analysisId: id
+          });
+        }
+      } catch (vtError) {
+        console.error('❌ Error checking VT status:', vtError);
+        return res.json({
+          success: true,
+          status: scan.status,
+          message: 'Still processing...',
+          analysisId: id
         });
       }
     }

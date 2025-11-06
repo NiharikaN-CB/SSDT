@@ -62,7 +62,7 @@
 
       input {
         flex-grow: 1;
-        background: transparent;
+        background: transparent !important;
         border: none;
         outline: none;
         color: var(--foreground);
@@ -73,6 +73,16 @@
         &::placeholder {
           color: var(--foreground-darker);
           opacity: 0.6;
+        }
+
+        // Prevent autofill white background
+        &:-webkit-autofill,
+        &:-webkit-autofill:hover,
+        &:-webkit-autofill:focus,
+        &:-webkit-autofill:active {
+          -webkit-box-shadow: 0 0 0 1000px var(--background-lighter) inset !important;
+          -webkit-text-fill-color: var(--foreground) !important;
+          transition: background-color 5000s ease-in-out 0s;
         }
       }
 

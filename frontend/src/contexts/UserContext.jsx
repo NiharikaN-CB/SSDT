@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { getApiUrl } from '../config/api';
 
 const UserContext = createContext();
 
@@ -25,7 +26,7 @@ export const UserProvider = ({ children }) => {
     }
 
     try {
-      const res = await fetch('/api/profile', {
+      const res = await fetch(getApiUrl('api/profile'), {
         headers: {
           'x-auth-token': token
         }
