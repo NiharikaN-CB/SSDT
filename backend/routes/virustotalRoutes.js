@@ -285,10 +285,29 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
     }
 
     console.log(`🔐 User ${req.user.id} submitted URL for combined scan: ${url}`);
+    console.log('🚀 TRUE PARALLEL EXECUTION: Starting all three APIs simultaneously...');
 
-    // Call VirusTotal API
-    const vtResp = await scanUrl(url);
+    // Extract hostname for Observatory (before parallel execution)
+    const hostname = new URL(url).hostname;
 
+    // Execute all three API calls in parallel using Promise.allSettled
+    const [vtResult, psiResult, obsResult] = await Promise.allSettled([
+      scanUrl(url),
+      getPageSpeedReport(url),
+      scanHost(hostname)
+    ]);
+
+    console.log('📋 Parallel execution results:');
+    console.log('  - VirusTotal:', vtResult.status);
+    console.log('  - PageSpeed:', psiResult.status);
+    console.log('  - Observatory:', obsResult.status);
+
+    // Handle VirusTotal result (critical - need analysis ID)
+    if (vtResult.status !== 'fulfilled') {
+      throw new Error(`VirusTotal scan failed: ${vtResult.reason?.message || 'Unknown error'}`);
+    }
+
+    const vtResp = vtResult.value;
     console.log('📋 VirusTotal Response:', JSON.stringify(vtResp, null, 2));
 
     // Extract analysis ID
@@ -312,14 +331,48 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
       });
     }
 
-    // Save to database with user reference
-    const scan = new ScanResult({
-      target: url,
-      analysisId: analysisId,
-      status: 'queued',
-      userId: req.user.id
-    });
-    await scan.save();
+    // Check if this analysis ID already exists for this user
+    let scan = await ScanResult.findOne({ analysisId: analysisId, userId: req.user.id });
+
+    if (scan) {
+      // Update existing scan with fresh data
+      console.log('🔄 Updating existing scan with fresh data...');
+      scan.status = 'processing';
+      scan.vtResult = null; // Clear old VT result
+      scan.refinedReport = null; // Clear old AI report
+      scan.pagespeedResult = psiResult.status === 'fulfilled'
+        ? psiResult.value
+        : { error: psiResult.reason?.message || 'PageSpeed scan failed' };
+      scan.observatoryResult = obsResult.status === 'fulfilled'
+        ? obsResult.value
+        : { error: obsResult.reason?.message || 'Observatory scan failed' };
+      scan.updatedAt = Date.now();
+      await scan.save();
+      console.log('✅ Existing scan updated with fresh PageSpeed and Observatory data');
+    } else {
+      // Create new scan
+      console.log('🆕 Creating new scan...');
+      scan = new ScanResult({
+        target: url,
+        analysisId: analysisId,
+        status: 'processing',
+        userId: req.user.id,
+        // Store PageSpeed result if successful
+        pagespeedResult: psiResult.status === 'fulfilled'
+          ? psiResult.value
+          : { error: psiResult.reason?.message || 'PageSpeed scan failed' },
+        // Store Observatory result if successful
+        observatoryResult: obsResult.status === 'fulfilled'
+          ? obsResult.value
+          : { error: obsResult.reason?.message || 'Observatory scan failed' }
+      });
+      await scan.save();
+      console.log('✅ New scan created');
+    }
+
+    console.log('✅ Parallel execution complete - PSI and Observatory results saved');
+    console.log(`   PageSpeed: ${psiResult.status === 'fulfilled' ? 'SUCCESS' : 'FAILED'}`);
+    console.log(`   Observatory: ${obsResult.status === 'fulfilled' ? 'SUCCESS' : 'FAILED'}`);
 
     res.json({
       success: true,
@@ -358,8 +411,8 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       });
     }
 
-    // STEP A: Check VirusTotal status
-    if (!scan.vtResult || scan.status === 'queued' || scan.status === 'pending') {
+    // STEP A: Check VirusTotal status (PSI and Observatory already started in parallel)
+    if (!scan.vtResult || scan.status === 'queued' || scan.status === 'processing') {
       console.log('⏳ Checking VirusTotal status...');
 
       const vtResp = await getAnalysis(id);
@@ -370,70 +423,39 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       if (vtStatus === 'completed') {
         // VT is complete, update the scan
         scan.vtResult = vtResp;
-        scan.status = 'pending'; // Still need to get PSI and Gemini
+        scan.status = 'combining'; // Now combining all results with Gemini
         await scan.save();
+        console.log('✅ VirusTotal complete! PSI and Observatory already fetched in parallel.');
       } else {
         // VT still pending
-        scan.status = vtStatus || 'pending';
+        scan.status = vtStatus || 'processing';
         await scan.save();
 
         return res.json({
           success: true,
           status: scan.status,
-          message: 'VirusTotal analysis in progress...',
+          message: 'VirusTotal analysis in progress... (PageSpeed and Observatory already running)',
           analysisId: id
         });
       }
     }
 
-    // STEP B: If VT is complete, check if we need PSI, Observatory and Gemini
-    if (scan.vtResult && (!scan.pagespeedResult || !scan.observatoryResult || !scan.refinedReport)) {
-      console.log('🔄 VT complete. Running PageSpeed, Observatory and Gemini analysis...');
+    // STEP B: If VT is complete, generate Gemini report
+    if (scan.vtResult && !scan.refinedReport) {
+      console.log('🔄 All APIs complete. Generating Gemini AI report...');
 
       try {
         // Update status to combining
         scan.status = 'combining';
         await scan.save();
 
-        // Run PageSpeed and Observatory in parallel for faster execution
-        console.log('🚀 Fetching PageSpeed and Observatory reports in parallel...');
+        // Extract data for Gemini (PSI and Observatory were already fetched in parallel)
+        const psiReport = scan.pagespeedResult?.error ? null : scan.pagespeedResult;
+        const observatoryReport = scan.observatoryResult?.error ? null : scan.observatoryResult;
 
-        // Extract hostname for Observatory
-        const hostname = new URL(scan.target).hostname;
-        console.log(`🔍 Scanning hostname: ${hostname}`);
-
-        // Execute both API calls in parallel using Promise.allSettled
-        // This allows independent error handling for each service
-        const [psiResult, obsResult] = await Promise.allSettled([
-          getPageSpeedReport(scan.target),
-          scanHost(hostname)
-        ]);
-
-        // Handle PageSpeed result
-        let psiReport = null;
-        if (psiResult.status === 'fulfilled') {
-          psiReport = psiResult.value;
-          scan.pagespeedResult = psiReport;
-          console.log('✅ PageSpeed report fetched successfully');
-        } else {
-          console.error('⚠️  PageSpeed scan failed:', psiResult.reason);
-          console.error('⚠️  Error details:', psiResult.reason?.message);
-          // Store error gracefully - don't fail entire scan
-          scan.pagespeedResult = { error: psiResult.reason?.message || 'PageSpeed scan failed' };
-        }
-
-        // Handle Observatory result
-        let observatoryReport = null;
-        if (obsResult.status === 'fulfilled') {
-          observatoryReport = obsResult.value;
-          scan.observatoryResult = observatoryReport;
-          console.log('✅ Observatory scan result:', observatoryReport);
-        } else {
-          console.error('⚠️  Observatory scan failed:', obsResult.reason);
-          console.error('⚠️  Error details:', obsResult.reason?.message);
-          // Continue even if Observatory fails - it's not critical
-          scan.observatoryResult = { error: obsResult.reason?.message || 'Observatory scan failed' };
-        }
+        console.log('📊 Using pre-fetched parallel results:');
+        console.log(`   PageSpeed: ${psiReport ? 'Available' : 'Failed'}`);
+        console.log(`   Observatory: ${observatoryReport ? 'Available' : 'Failed'}`);
 
         // Generate refined report with Gemini (now includes Observatory data)
         console.log('🤖 Generating AI-refined report...');

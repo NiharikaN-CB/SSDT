@@ -77,5 +77,26 @@ app.listen(PORT, () => {
   console.log('🚀 Server started successfully!');
   console.log(`📡 Listening on port ${PORT}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+
+  // Log Gemini API key configuration
+  const geminiKeys = [];
+  if (process.env.GEMINI_API_KEY) geminiKeys.push('primary');
+  let i = 2;
+  while (process.env[`GEMINI_API_KEY_${i}`]) {
+    geminiKeys.push(`fallback #${i-1}`);
+    i++;
+  }
+  console.log(`🤖 Gemini AI: ${geminiKeys.length} API key(s) configured [${geminiKeys.join(', ')}]`);
+
+  // Log PageSpeed API key configuration
+  const psiKeys = [];
+  if (process.env.PSI_API_KEY) psiKeys.push('primary');
+  let j = 2;
+  while (process.env[`PSI_API_KEY_${j}`]) {
+    psiKeys.push(`fallback #${j-1}`);
+    j++;
+  }
+  console.log(`⚡ PageSpeed: ${psiKeys.length} API key(s) configured [${psiKeys.join(', ')}]`);
+
   console.log('=================================\n');
 });

@@ -193,6 +193,16 @@ const Hero = () => {
     }
   };
 
+  // Safe URL parsing helper to prevent crashes
+  const getHostname = (url) => {
+    try {
+      return new URL(url).hostname;
+    } catch (error) {
+      console.warn('Failed to parse URL:', url, error);
+      return url || 'unknown';
+    }
+  };
+
   const renderReport = () => {
     if (loading) {
       return (
@@ -317,6 +327,12 @@ const Hero = () => {
             <h4 style={{ marginTop: 0, color: 'var(--accent)' }}>🤖 AI-Generated Analysis Summary</h4>
             <div>
               {(() => {
+                // Type check: Ensure refinedReport is a string before string operations
+                if (typeof refinedReport !== 'string') {
+                  console.warn('refinedReport is not a string:', typeof refinedReport, refinedReport);
+                  return String(refinedReport || 'AI analysis not available');
+                }
+
                 // Clean up markdown code blocks and markdown symbols
                 let cleanReport = refinedReport;
 
@@ -438,13 +454,13 @@ const Hero = () => {
                 fontWeight: 'bold',
                 color: getObservatoryGradeColor(observatoryData.grade)
               }}>
-                {observatoryData.grade}
+                {observatoryData.grade || 'N/A'}
               </span>
               <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>
                 Mozilla Observatory
               </p>
               <p style={{ fontSize: '0.75rem', color: 'var(--foreground-darker)' }}>
-                {observatoryData.tests_passed}/{observatoryData.tests_quantity} tests passed
+                {observatoryData.tests_passed ?? 0}/{observatoryData.tests_quantity ?? 0} tests passed
               </p>
             </div>
           )}
@@ -468,14 +484,14 @@ const Hero = () => {
         {observatoryData ? (
           <div className="report-summary" style={{ marginTop: '2rem' }}>
             <h4>🔒 Mozilla Observatory Security Configuration</h4>
-            <p><b>Security Grade:</b> <span style={{ color: getObservatoryGradeColor(observatoryData.grade), fontWeight: 'bold', fontSize: '1.2rem' }}>{observatoryData.grade}</span></p>
-            <p><b>Score:</b> {observatoryData.score}/100</p>
-            <p><b>Tests Passed:</b> {observatoryData.tests_passed}/{observatoryData.tests_quantity}</p>
-            <p><b>Tests Failed:</b> {observatoryData.tests_failed}/{observatoryData.tests_quantity}</p>
+            <p><b>Security Grade:</b> <span style={{ color: getObservatoryGradeColor(observatoryData.grade), fontWeight: 'bold', fontSize: '1.2rem' }}>{observatoryData.grade || 'N/A'}</span></p>
+            <p><b>Score:</b> {observatoryData.score ?? 'N/A'}/100</p>
+            <p><b>Tests Passed:</b> {observatoryData.tests_passed ?? 0}/{observatoryData.tests_quantity ?? 0}</p>
+            <p><b>Tests Failed:</b> {observatoryData.tests_failed ?? 0}/{observatoryData.tests_quantity ?? 0}</p>
             <p>
               <b>View Full Report:</b>{" "}
               <a
-                href={`https://developer.mozilla.org/en-US/observatory/analyze?host=${encodeURIComponent(new URL(report.target).hostname)}`}
+                href={`https://developer.mozilla.org/en-US/observatory/analyze?host=${encodeURIComponent(getHostname(report.target))}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
@@ -497,7 +513,7 @@ const Hero = () => {
             <p>
               <b>Manual Scan:</b>{" "}
               <a
-                href={`https://developer.mozilla.org/en-US/observatory/analyze?host=${encodeURIComponent(new URL(report.target).hostname)}`}
+                href={`https://developer.mozilla.org/en-US/observatory/analyze?host=${encodeURIComponent(getHostname(report.target))}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
