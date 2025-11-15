@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import Header from '../../components/header';
 import ParticleBackground from '../../components/ParticleBackground';
+import EyeIcon from '../../components/EyeIcon';
 import '../../styles/Auth.scss';
 
 const RegisterPage = () => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -73,13 +75,14 @@ const RegisterPage = () => {
               </div>
               <div className="input-wrapper">
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   name="password"
                   placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
+                <EyeIcon isVisible={showPassword} onClick={() => setShowPassword(!showPassword)} />
               </div>
               <button type="submit" disabled={loading}>
                 {loading ? 'Registering...' : 'Register'}

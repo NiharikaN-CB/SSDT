@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Header from '../../components/header';
 import ParticleBackground from '../../components/ParticleBackground';
+import EyeIcon from '../../components/EyeIcon';
 
 const ResetPasswordPage = () => {
   const { token } = useParams();
   const navigate = useNavigate();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -74,7 +77,7 @@ const ResetPasswordPage = () => {
             <form className="auth-form" onSubmit={handleSubmit}>
               <div className="input-wrapper">
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   name="password"
                   placeholder="New Password"
                   value={password}
@@ -82,10 +85,11 @@ const ResetPasswordPage = () => {
                   required
                   minLength="6"
                 />
+                <EyeIcon isVisible={showPassword} onClick={() => setShowPassword(!showPassword)} />
               </div>
               <div className="input-wrapper">
                 <input
-                  type="password"
+                  type={showConfirmPassword ? 'text' : 'password'}
                   name="confirmPassword"
                   placeholder="Confirm New Password"
                   value={confirmPassword}
@@ -93,6 +97,7 @@ const ResetPasswordPage = () => {
                   required
                   minLength="6"
                 />
+                <EyeIcon isVisible={showConfirmPassword} onClick={() => setShowConfirmPassword(!showConfirmPassword)} />
               </div>
               <button type="submit" disabled={loading || !token}>
                 {loading ? 'Resetting...' : 'Reset Password'}
