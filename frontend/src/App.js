@@ -12,6 +12,9 @@ import OTPVerification from './pages/auth/OTPVerification';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import Profile from './pages/Profile';
+import ZapScanner from './pages/ZapScanner';
+import PassiveScanner from './pages/PassiveScanner';
+import ScanSelection from './pages/ScanSelection';
 // Translation imports
 import { TranslationProvider } from './contexts/TranslationContext';
 import { UserProvider, useUser } from './contexts/UserContext';
@@ -38,12 +41,19 @@ function AppContent() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            {/* 👇 1. The New Selection Screen */}
+            <Route path="/select-mode" element={<ScanSelection />} />
+
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/verify-otp" element={<OTPVerification />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/scanner" element={<ZapScanner />} />
+            {/* 👇 3. The Passive Scanner (You need to ensure this component exists) */}
+            {/* If you haven't made a dedicated page for Passive Scan yet, create one similar to ZapScanner */}
+            <Route path="/passive-scan" element={<PassiveScanner />} />
           </Routes>
         </BrowserRouter>
       </TranslationProvider>

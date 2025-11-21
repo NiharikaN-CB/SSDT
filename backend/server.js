@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./db');
+const zapRoutes = require('./routes/zapRoutes');
 const { apiLimiter, authLimiter, scanLimiter } = require('./middleware/rateLimiter');
 
 // Validate required environment variables
@@ -42,6 +43,7 @@ app.use('/auth', authLimiter, require('./routes/auth'));
 app.use('/api/vt', apiLimiter, scanLimiter, require('./routes/virustotalRoutes'));
 app.use('/api/translate', apiLimiter, require('./routes/translateRoutes'));
 app.use('/api/profile', apiLimiter, require('./routes/profile'));
+app.use('/api/zap', zapRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
