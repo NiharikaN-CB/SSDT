@@ -12,7 +12,7 @@ const scanResultSchema = new mongoose.Schema({
     unique: true,
     index: true
   },
-  vtResult: {
+  result: {
     type: Object,
     default: null
   },
@@ -24,13 +24,18 @@ const scanResultSchema = new mongoose.Schema({
     type: Object,
     default: null
   },
+  // 👇 ADD THIS FIELD
+  zapResult: {
+    type: Object,
+    default: null
+  },
   refinedReport: {
     type: String,
     default: null
   },
   status: {
     type: String,
-    enum: ['queued', 'pending', 'combining', 'completed', 'failed'],
+    enum: ['queued', 'pending', 'completed', 'failed'],
     default: 'queued'
   },
   userId: {
@@ -50,18 +55,15 @@ const scanResultSchema = new mongoose.Schema({
   }
 });
 
-// Update the updatedAt timestamp before saving
 scanResultSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   next();
 });
 
-// Add method to check if scan is complete
 scanResultSchema.methods.isComplete = function() {
   return this.status === 'completed';
 };
 
-// Add static method to get recent scans
 scanResultSchema.statics.getRecentScans = function(userId, limit = 10) {
   return this.find({ userId })
     .sort({ createdAt: -1 })

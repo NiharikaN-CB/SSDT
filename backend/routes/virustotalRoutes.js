@@ -3,40 +3,11 @@ const multer = require('multer');
 const fs = require('fs').promises;
 const path = require('path');
 const { scanFile, scanUrl, getAnalysis, getFileReport } = require('../services/virustotalService');
-const { getPageSpeedReport } = require('../services/pagespeedService');
-const { refineReport } = require('../services/geminiService');
-const { scanHost } = require('../services/observatoryService');
 const ScanResult = require('../models/ScanResult');
 const auth = require('../middleware/auth');
 const { combinedScanLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
-
-// URL validation helper function
-function isValidUrl(urlString) {
-  try {
-    const url = new URL(urlString);
-    // Check if protocol is http or https
-    if (!['http:', 'https:'].includes(url.protocol)) {
-      return { valid: false, error: 'URL must use HTTP or HTTPS protocol' };
-    }
-    // Check if hostname is valid (not empty and contains at least one dot)
-    if (!url.hostname || url.hostname.length < 3) {
-      return { valid: false, error: 'Invalid hostname in URL' };
-    }
-    // Block localhost and private IP ranges for security
-    const blockedHosts = ['localhost', '127.0.0.1', '0.0.0.0', '::1'];
-    const privateRanges = /^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)/;
-
-    if (blockedHosts.includes(url.hostname) || privateRanges.test(url.hostname)) {
-      return { valid: false, error: 'Cannot scan local or private network URLs' };
-    }
-
-    return { valid: true };
-  } catch (err) {
-    return { valid: false, error: 'Invalid URL format' };
-  }
-}
 
 // Configure multer
 const upload = multer({
@@ -136,12 +107,6 @@ router.post('/url', auth, async (req, res) => {
 
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'URL is required' });
-    }
-
-    // Validate URL format and security
-    const validation = isValidUrl(url);
-    if (!validation.valid) {
-      return res.status(400).json({ error: validation.error });
     }
 
     console.log(`🔐 User ${req.user.id} submitted URL: ${url}`);
@@ -289,11 +254,8 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
     // Call VirusTotal API
     const vtResp = await scanUrl(url);
 
-    console.log('📋 VirusTotal Response:', JSON.stringify(vtResp, null, 2));
-
     // Extract analysis ID
     let analysisId = null;
-
     if (vtResp?.data?.id) {
       analysisId = vtResp.data.id;
     } else if (vtResp?.id) {
@@ -301,8 +263,6 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
     } else if (vtResp?.data?.attributes?.id) {
       analysisId = vtResp.data.attributes.id;
     }
-
-    console.log(`🔑 Extracted Analysis ID: ${analysisId}`);
 
     if (!analysisId) {
       console.error('❌ No analysis ID found in response:', vtResp);
@@ -312,28 +272,47 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
       });
     }
 
-    // Save to database with user reference
-    const scan = new ScanResult({
-      target: url,
-      analysisId: analysisId,
-      status: 'queued',
-      userId: req.user.id
-    });
-    await scan.save();
+    console.log(`🔑 Analysis ID: ${analysisId}`);
+
+    // 👇 FIXED: Check if scan already exists to prevent Duplicate Key Error
+    let scan = await ScanResult.findOne({ analysisId: analysisId });
+
+    if (scan) {
+      console.log('📝 Existing scan found, updating record...');
+      scan.userId = req.user.id; // Update owner to current requester
+      scan.updatedAt = Date.now();
+      // Only reset status if it was failed, otherwise keep the history
+      if (scan.status === 'failed') {
+          scan.status = 'queued';
+      }
+      await scan.save();
+    } else {
+      console.log('📝 Creating new scan record...');
+      scan = new ScanResult({
+        target: url,
+        analysisId: analysisId,
+        status: 'queued',
+        userId: req.user.id
+      });
+      await scan.save();
+    }
+    // 👆 END FIX
 
     res.json({
       success: true,
-      message: 'URL submitted for combined analysis (VirusTotal + PageSpeed + AI)',
+      message: 'URL submitted for combined analysis',
       analysisId: analysisId,
       url: url
     });
   } catch (err) {
     console.error('❌ Combined URL scan error:', err);
-    console.error('❌ Error stack:', err.stack);
+    // Graceful error handling for duplicates if race condition occurs
+    if (err.code === 11000) {
+       return res.status(409).json({ error: "Scan already in progress. Please wait a moment and try again." });
+    }
     res.status(500).json({
       error: 'Failed to initiate combined scan',
-      details: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      details: err.message
     });
   }
 });
