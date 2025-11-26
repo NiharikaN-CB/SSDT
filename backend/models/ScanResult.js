@@ -16,6 +16,26 @@ const scanResultSchema = new mongoose.Schema({
     type: Object,
     default: null
   },
+<<<<<<< HEAD
+=======
+  pagespeedResult: {
+    type: Object,
+    default: null
+  },
+  observatoryResult: {
+    type: Object,
+    default: null
+  },
+  // 👇 ADD THIS FIELD
+  zapResult: {
+    type: Object,
+    default: null
+  },
+  refinedReport: {
+    type: String,
+    default: null
+  },
+>>>>>>> ae0d637 (Integrated OWASP ZAP Active Scan with Docker)
   status: {
     type: String,
     enum: ['queued', 'pending', 'completed', 'failed'],
@@ -38,18 +58,15 @@ const scanResultSchema = new mongoose.Schema({
   }
 });
 
-// Update the updatedAt timestamp before saving
 scanResultSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   next();
 });
 
-// Add method to check if scan is complete
 scanResultSchema.methods.isComplete = function() {
   return this.status === 'completed';
 };
 
-// Add static method to get recent scans
 scanResultSchema.statics.getRecentScans = function(userId, limit = 10) {
   return this.find({ userId })
     .sort({ createdAt: -1 })
