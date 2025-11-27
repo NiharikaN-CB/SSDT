@@ -15,6 +15,7 @@ Scan any URL and get a complete analysis in one request:
 
 ### User Authentication
 
+- Google Login & Sign up - Seamless authentication using Google OAuth 2.0
 - User registration with email verification
 - OTP-based login for enhanced security
 - JWT token authentication
@@ -34,6 +35,7 @@ Scan any URL and get a complete analysis in one request:
 
 - Node.js + Express
 - MongoDB (Mongoose)
+- Google Auth Library (OAuth 2.0)
 - APIs:
   - VirusTotal API
   - Google PageSpeed Insights API
@@ -45,6 +47,7 @@ Scan any URL and get a complete analysis in one request:
 
 - React 19
 - React Router
+- Google OAuth (@react-oauth/google)
 - SCSS styling
 - Responsive design
 
@@ -73,10 +76,19 @@ Scan any URL and get a complete analysis in one request:
 2. **Configure environment variables:**
 
    ```bash
+   #Terminal 1 - Backend
    cd backend
    cp .env.example .env
    # Edit .env with your API keys
    ```
+
+     ```bash
+   #Terminal 1 - Frontend
+   cd frontend
+   cp .env.example .env
+   # Edit .env with your API keys
+   ```
+
 
 3. **Start the application:**
 
@@ -100,7 +112,9 @@ Scan any URL and get a complete analysis in one request:
 
 ## Usage
 
-1. Register an account and verify email
+1. Register :
+   - Use Sign up with Google for instant access.
+   - OR Register manually with email/password and verify via OTP.
 2. Login with OTP verification (or directly if password was recently reset)
 3. Enter a URL to scan (e.g., https://github.com)
 4. Wait 30-60 seconds for complete analysis
@@ -135,6 +149,7 @@ SSDT/
 
 ### Authentication
 
+- `POST /auth/google` - Login or Register with Google (Access Token flow)
 - `POST /auth/register` - Register new user
 - `POST /auth/login` - Login and send OTP (skips OTP for recently reset passwords)
 - `POST /auth/verify-otp` - Verify OTP and get JWT token
@@ -178,9 +193,20 @@ GEMINI_API_KEY_3=your_third_gemini_api_key   # Optional fallback
 EMAIL_USER=your_email@gmail.com
 EMAIL_PASS=your_app_password
 
+# Google OAuth Configuration for backend authentication
+GOOGLE_CLIENT_ID=your_google_client_id_from_cloud_console
+
 # Server
 PORT=3001
 NODE_ENV=development
+```
+
+Required in `frontend/.env`:
+
+```bash
+# Google OAuth Client ID for frontend authentication
+REACT_APP_GOOGLE_CLIENT_ID=your_google_client_id_here
+
 ```
 
 ### Multiple Gemini API Keys (Recommended)

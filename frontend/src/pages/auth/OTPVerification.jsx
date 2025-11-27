@@ -29,7 +29,8 @@ const OTPVerification = () => {
     setError('');
 
     try {
-      const response = await fetch('/auth/verify-otp', {
+      // FIX: Use absolute URL http://localhost:3001
+      const response = await fetch('http://localhost:3001/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, otp }),
@@ -59,7 +60,8 @@ const OTPVerification = () => {
     setError('');
 
     try {
-      const response = await fetch('/auth/resend-otp', {
+      // FIX: Use absolute URL http://localhost:3001
+      const response = await fetch('http://localhost:3001/auth/resend-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

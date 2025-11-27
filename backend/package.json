@@ -4,8 +4,8 @@
   "description": "Backend API for VirusTotal file and URL scanning",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node --max-http-header-size=81920 server.js",
+    "dev": "nodemon --max-http-header-size=81920 server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -27,6 +27,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
     "form-data": "^4.0.4",
+    "google-auth-library": "^10.5.0",
     "google-translate-api-x": "^10.7.2",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.19.1",
