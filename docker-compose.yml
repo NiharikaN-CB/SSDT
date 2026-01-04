@@ -1,18 +1,10 @@
+# Docker Compose for OWASP ZAP Scanner Only
+# Frontend and Backend run natively with Node.js (npm run dev / npm start)
 
 version: '3.8'
 
 services:
-  # 1. MongoDB Database
-  mongo:
-    image: mongo:latest
-    container_name: ssdt-mongo
-    restart: always
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
-
-  # 2. OWASP ZAP Scanner
+  # OWASP ZAP Scanner - Used for security vulnerability scanning
   zap:
     image: zaproxy/zap-stable
     container_name: zap-daemon
@@ -34,31 +26,3 @@ services:
       - "api.key=ssdt-secure-zap-2025"
       - "-config"
       - "api.disablekey=false"
-
-  # 3. Backend API
-  backend:
-    build: ./backend
-    container_name: ssdt-backend
-    restart: always
-    ports:
-      - "3001:3001"
-    env_file:
-      - ./backend/.env
-    depends_on:
-      - mongo
-      - zap
-
-  # 4. Frontend UI
-  frontend:
-    build: ./frontend
-    container_name: ssdt-frontend
-    restart: always
-    ports:
-      - "3000:3000"
-    environment:
-      - VITE_API_URL=http://localhost:3001
-    depends_on:
-      - backend
-
-volumes:
-  mongo-data:
