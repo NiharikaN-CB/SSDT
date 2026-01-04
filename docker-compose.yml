@@ -26,3 +26,23 @@ services:
       - "api.key=ssdt-secure-zap-2025"
       - "-config"
       - "api.disablekey=false"
+    networks:
+      - app-network
+
+  # WebCheck Scanner - Web security analysis tools
+  webcheck:
+    build: ./new
+    container_name: ssdt-webcheck
+    restart: always
+    environment:
+      - CHROME_PATH=/usr/bin/chromium
+      - PORT=3002
+      - WC_SERVER=true
+    ports:
+      - "3002:3002"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

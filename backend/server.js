@@ -5,7 +5,8 @@ const connectDB = require('./db');
 const { apiLimiter, authLimiter, scanLimiter } = require('./middleware/rateLimiter');
 
 // 👇 IMPORT ZAP ROUTES
-const zapRoutes = require('./routes/zapRoutes'); 
+const zapRoutes = require('./routes/zapRoutes');
+const webCheckRoutes = require('./routes/webCheckRoutes');
 
 // Validate required environment variables
 const requiredEnvVars = ['MONGO_URI', 'JWT_SECRET', 'VT_API_KEY'];
@@ -23,7 +24,11 @@ connectDB();
 app.set('trust proxy', 1);
 
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: [
+    process.env.CLIENT_URL || 'http://localhost:3000',
+    'http://localhost:3002',
+    'http://localhost:3003'
+  ],
   credentials: true
 }));
 app.use(express.json({ extended: false, limit: '10mb' }));
@@ -39,7 +44,10 @@ app.use('/api/vt', apiLimiter, scanLimiter, require('./routes/virustotalRoutes')
 app.use('/api/pagespeed', apiLimiter, require('./routes/pageSpeedRoutes'));
 
 // 👇 REGISTER ZAP ROUTE
-app.use('/api/zap', apiLimiter, scanLimiter, zapRoutes); 
+app.use('/api/zap', apiLimiter, scanLimiter, zapRoutes);
+
+// 👇 REGISTER WEBCHECK ROUTES
+app.use('/api/webcheck', apiLimiter, scanLimiter, webCheckRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });

@@ -35,7 +35,7 @@ const scanResultSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['queued', 'pending', 'completed', 'failed'],
+    enum: ['queued', 'pending', 'combining', 'completed', 'failed'],
     default: 'queued'
   },
   userId: {
@@ -55,16 +55,16 @@ const scanResultSchema = new mongoose.Schema({
   }
 });
 
-scanResultSchema.pre('save', function(next) {
+scanResultSchema.pre('save', function (next) {
   this.updatedAt = Date.now();
   next();
 });
 
-scanResultSchema.methods.isComplete = function() {
+scanResultSchema.methods.isComplete = function () {
   return this.status === 'completed';
 };
 
-scanResultSchema.statics.getRecentScans = function(userId, limit = 10) {
+scanResultSchema.statics.getRecentScans = function (userId, limit = 10) {
   return this.find({ userId })
     .sort({ createdAt: -1 })
     .limit(limit);

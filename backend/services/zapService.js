@@ -6,7 +6,7 @@ const API_KEY = process.env.ZAP_API_KEY || 'ssdt-secure-zap-2025';
 
 const zapApi = axios.create({
   baseURL: ZAP_URL,
-  timeout: 5000, 
+  timeout: 15000, // Increased timeout for Windows
   headers: {
     'X-Zap-Api-Key': API_KEY, // Header is required by newer ZAP versions
     'Content-Type': 'application/json'
@@ -22,18 +22,30 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * Waits for ZAP to become ready by checking the Version API
  */
 const waitForZap = async (retries = 15) => {
+  console.log(`🔍 [ZAP] Connecting to: ${ZAP_URL}`);
+  console.log(`🔑 [ZAP] Using API Key: ${API_KEY.substring(0, 10)}...`);
+
   for (let i = 0; i < retries; i++) {
     try {
       // 2. CHECK VERSION instead of root '/' to avoid 403 Forbidden errors
-      await zapApi.get('/JSON/core/view/version/');
-      console.log('✅ ZAP Container is ready and reachable!');
+      const response = await zapApi.get('/JSON/core/view/version/');
+      console.log('✅ ZAP Container is ready and reachable!', response.data);
       return true;
     } catch (error) {
+      // Detailed error logging
+      const errorInfo = {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+      };
+      console.log(`⏳ Waiting for ZAP to boot... (${i + 1}/${retries}) - Error:`, JSON.stringify(errorInfo));
+
       if (error.response && error.response.status === 403) {
         console.error('❌ ZAP API Key Rejected. Check your .env file matches the Docker command.');
         return false;
       }
-      console.log(`⏳ Waiting for ZAP to boot... (${i + 1}/${retries})`);
       await sleep(2000);
     }
   }
@@ -64,8 +76,8 @@ const runZapScan = async (targetUrl) => {
 
     // 5. Active Scan (Attack)
     console.log('[ZAP] Active Scanning...');
-    const ascanResp = await zapApi.get('/JSON/ascan/action/scan/', { 
-      params: { url: targetUrl, recurse: 'true', inScopeOnly: 'false' } 
+    const ascanResp = await zapApi.get('/JSON/ascan/action/scan/', {
+      params: { url: targetUrl, recurse: 'true', inScopeOnly: 'false' }
     });
     const ascanId = ascanResp.data.scan;
 
@@ -82,7 +94,7 @@ const runZapScan = async (targetUrl) => {
 
     // 7. Format Results
     const riskCounts = { High: 0, Medium: 0, Low: 0, Informational: 0 };
-    alerts.forEach(a => { if(riskCounts[a.risk] !== undefined) riskCounts[a.risk]++; });
+    alerts.forEach(a => { if (riskCounts[a.risk] !== undefined) riskCounts[a.risk]++; });
 
     return {
       site: targetUrl,

@@ -3,6 +3,9 @@ const multer = require('multer');
 const fs = require('fs').promises;
 const path = require('path');
 const { scanFile, scanUrl, getAnalysis, getFileReport } = require('../services/virustotalService');
+const { getPageSpeedReport } = require('../services/pagespeedService');
+const { scanHost } = require('../services/observatoryService');
+const { refineReport } = require('../services/geminiService');
 const ScanResult = require('../models/ScanResult');
 const auth = require('../middleware/auth');
 const { combinedScanLimiter } = require('../middleware/rateLimiter');
@@ -25,6 +28,25 @@ const upload = multer({
 const uploadsDir = path.join(__dirname, '../uploads');
 fs.mkdir(uploadsDir, { recursive: true }).catch(console.error);
 
+// URL validation helper
+const isValidUrl = (urlString) => {
+  try {
+    const url = new URL(urlString);
+    // Only allow http and https protocols
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      return { valid: false, error: 'Only HTTP and HTTPS URLs are allowed' };
+    }
+    // Prevent localhost/internal IPs for security
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.')) {
+      return { valid: false, error: 'Localhost and private IPs are not allowed' };
+    }
+    return { valid: true };
+  } catch (e) {
+    return { valid: false, error: 'Invalid URL format' };
+  }
+};
+
 // 1️⃣ Scan a file (Protected route)
 router.post('/file', auth, upload.single('file'), async (req, res) => {
   let filePath = null;
@@ -39,13 +61,13 @@ router.post('/file', auth, upload.single('file'), async (req, res) => {
 
     // Call VirusTotal API
     const vtResp = await scanFile(filePath);
-    
+
     // DEBUG: Log the entire response
     console.log('📋 VirusTotal Response:', JSON.stringify(vtResp, null, 2));
 
     // Extract analysis ID - try multiple possible locations
     let analysisId = null;
-    
+
     if (vtResp?.data?.id) {
       analysisId = vtResp.data.id;
     } else if (vtResp?.id) {
@@ -58,9 +80,9 @@ router.post('/file', auth, upload.single('file'), async (req, res) => {
 
     if (!analysisId) {
       console.error('❌ No analysis ID found in response:', vtResp);
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'No analysis ID received from VirusTotal',
-        vtResponse: vtResp 
+        vtResponse: vtResp
       });
     }
 
@@ -113,13 +135,13 @@ router.post('/url', auth, async (req, res) => {
 
     // Call VirusTotal API
     const vtResp = await scanUrl(url);
-    
+
     // DEBUG: Log the entire response
     console.log('📋 VirusTotal Response:', JSON.stringify(vtResp, null, 2));
 
     // Extract analysis ID - try multiple possible locations
     let analysisId = null;
-    
+
     if (vtResp?.data?.id) {
       analysisId = vtResp.data.id;
     } else if (vtResp?.id) {
@@ -132,9 +154,9 @@ router.post('/url', auth, async (req, res) => {
 
     if (!analysisId) {
       console.error('❌ No analysis ID found in response:', vtResp);
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'No analysis ID received from VirusTotal',
-        vtResponse: vtResp 
+        vtResponse: vtResp
       });
     }
 
@@ -176,7 +198,7 @@ router.get('/analysis/:id', auth, async (req, res) => {
     console.log(`📊 Fetching analysis for ID: ${id}`);
 
     const vtResp = await getAnalysis(id);
-    
+
     // DEBUG: Log response
     console.log('📋 Analysis Response:', JSON.stringify(vtResp, null, 2));
 
@@ -283,7 +305,7 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
       scan.updatedAt = Date.now();
       // Only reset status if it was failed, otherwise keep the history
       if (scan.status === 'failed') {
-          scan.status = 'queued';
+        scan.status = 'queued';
       }
       await scan.save();
     } else {
@@ -308,7 +330,7 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
     console.error('❌ Combined URL scan error:', err);
     // Graceful error handling for duplicates if race condition occurs
     if (err.code === 11000) {
-       return res.status(409).json({ error: "Scan already in progress. Please wait a moment and try again." });
+      return res.status(409).json({ error: "Scan already in progress. Please wait a moment and try again." });
     }
     res.status(500).json({
       error: 'Failed to initiate combined scan',
@@ -443,56 +465,48 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       }
     }
 
-    // STEP C: Return the complete results
-    if (scan.status === 'completed') {
-      // Extract key metrics for easy access
-      const vtStats = scan.vtResult?.data?.attributes?.stats || {};
-      const lighthouseResult = scan.pagespeedResult?.lighthouseResult || {};
-      const categories = lighthouseResult.categories || {};
+    // STEP C: Return results (partial or complete)
+    // Extract key metrics for easy access - even for partial results
+    const vtStats = scan.vtResult?.data?.attributes?.stats || null;
+    const lighthouseResult = scan.pagespeedResult?.lighthouseResult || {};
+    const categories = lighthouseResult.categories || {};
 
-      const psiScores = {
-        performance: categories.performance?.score ? Math.round(categories.performance.score * 100) : null,
-        accessibility: categories.accessibility?.score ? Math.round(categories.accessibility.score * 100) : null,
-        bestPractices: categories['best-practices']?.score ? Math.round(categories['best-practices'].score * 100) : null,
-        seo: categories.seo?.score ? Math.round(categories.seo.score * 100) : null
-      };
+    const psiScores = scan.pagespeedResult && !scan.pagespeedResult.error ? {
+      performance: categories.performance?.score ? Math.round(categories.performance.score * 100) : null,
+      accessibility: categories.accessibility?.score ? Math.round(categories.accessibility.score * 100) : null,
+      bestPractices: categories['best-practices']?.score ? Math.round(categories['best-practices'].score * 100) : null,
+      seo: categories.seo?.score ? Math.round(categories.seo.score * 100) : null
+    } : null;
 
-      // Extract Observatory metrics
-      console.log('📊 Processing Observatory Result:', scan.observatoryResult);
+    const observatoryData = scan.observatoryResult && !scan.observatoryResult.error ? {
+      grade: scan.observatoryResult.grade,
+      score: scan.observatoryResult.score,
+      tests_passed: scan.observatoryResult.tests_passed,
+      tests_failed: scan.observatoryResult.tests_failed,
+      tests_quantity: scan.observatoryResult.tests_quantity
+    } : null;
 
-      const observatoryData = scan.observatoryResult && !scan.observatoryResult.error ? {
-        grade: scan.observatoryResult.grade,
-        score: scan.observatoryResult.score,
-        tests_passed: scan.observatoryResult.tests_passed,
-        tests_failed: scan.observatoryResult.tests_failed,
-        tests_quantity: scan.observatoryResult.tests_quantity
-      } : null;
-
-      console.log('📊 Extracted Observatory Data:', observatoryData);
-
-      return res.json({
-        success: true,
-        status: 'completed',
-        analysisId: id,
-        target: scan.target,
-        vtStats: vtStats,
-        psiScores: psiScores,
-        observatoryData: observatoryData,
-        refinedReport: scan.refinedReport,
-        vtResult: scan.vtResult,
-        pagespeedResult: scan.pagespeedResult,
-        observatoryResult: scan.observatoryResult,
-        createdAt: scan.createdAt,
-        updatedAt: scan.updatedAt
-      });
-    }
-
-    // Return current status
-    res.json({
+    // Always return all available data (progressive loading)
+    return res.json({
       success: true,
       status: scan.status,
-      message: `Analysis status: ${scan.status}`,
-      analysisId: id
+      analysisId: id,
+      target: scan.target,
+      // Partial data indicators
+      hasVtResult: !!scan.vtResult,
+      hasPsiResult: !!scan.pagespeedResult,
+      hasObservatoryResult: !!scan.observatoryResult,
+      hasRefinedReport: !!scan.refinedReport,
+      // Actual data (null if not yet available)
+      vtStats: vtStats,
+      psiScores: psiScores,
+      observatoryData: observatoryData,
+      refinedReport: scan.refinedReport || null,
+      vtResult: scan.vtResult || null,
+      pagespeedResult: scan.pagespeedResult || null,
+      observatoryResult: scan.observatoryResult || null,
+      createdAt: scan.createdAt,
+      updatedAt: scan.updatedAt
     });
 
   } catch (err) {
