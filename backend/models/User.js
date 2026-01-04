@@ -12,7 +12,13 @@ const UserSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    required: true,
+    // CHANGED: Password is now required only if googleId is not present
+    required: function() { return !this.googleId; },
+  },
+  googleId: { // NEW: To store Google unique ID
+    type: String, 
+    unique: true, 
+    sparse: true 
   },
   isVerified: {
     type: Boolean,

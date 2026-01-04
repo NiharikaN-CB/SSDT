@@ -27,6 +27,39 @@
   box-shadow: none !important;
 }
 
+.auth-form button,
+.google-btn { /* Added .google-btn here */
+  font-family: 'Orbitron', var(--font-sans) !important;
+  font-size: 1rem !important;
+  color: #0ff !important;
+  background: transparent !important;
+  border: 2px solid #0ff !important;
+  padding: 0.8em 2em !important;
+  border-radius: 10px !important;
+  text-transform: uppercase !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  position: relative !important;
+  overflow: hidden !important;
+  letter-spacing: 1px !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+  
+  /* Flex layout for Google Icon */
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+}
+
+.auth-form button:hover:not(:disabled),
+.google-btn:hover:not(:disabled) { /* Added .google-btn here */
+  color: #000 !important;
+  background: #0ff !important;
+  border-color: #0ff !important;
+  transform: translateY(-2px) !important;
+}
+
 .analyze-form button:hover:not(:disabled) {
   color: #000 !important;
   background: #0ff !important;

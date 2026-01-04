@@ -1,7 +1,9 @@
-// File path: frontend/src/pages/auth/LoginPage.jsx
+// frontend/src/pages/auth/LoginPage.jsx
 
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useGoogleLogin } from '@react-oauth/google';
+import { FcGoogle } from 'react-icons/fc';
 import Header from '../../components/header';
 import ParticleBackground from '../../components/ParticleBackground';
 import EyeIcon from '../../components/EyeIcon';
@@ -16,6 +18,39 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  // Google Login (Already correct)
+  const googleLogin = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      setLoading(true);
+      setMessage('');
+      setError('');
+      try {
+        const response = await fetch('http://localhost:3001/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ googleAccessToken: tokenResponse.access_token }),
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          localStorage.setItem('token', data.token);
+          setMessage('Google login successful! Redirecting...');
+          setTimeout(() => navigate('/'), 2000);
+        } else {
+          setError(data.message || 'Google login failed');
+        }
+      } catch (err) {
+        console.error('Google Login Error:', err);
+        setError('Google Login failed. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    onError: () => setError('Google Login Failed'),
+  });
+
+  // Manual Login - FIXED URL
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -23,7 +58,8 @@ const LoginPage = () => {
     setError('');
 
     try {
-      const response = await fetch('/auth/login', {
+      // CHANGED: Use absolute URL to hit Backend directly (Bypasses Frontend Proxy 431 Error)
+      const response = await fetch('http://localhost:3001/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
@@ -31,18 +67,12 @@ const LoginPage = () => {
       const data = await response.json();
       if (response.ok) {
         if (data.token) {
-          // Direct login success (password reset user)
           localStorage.setItem('token', data.token);
           setMessage(data.message);
-          setTimeout(() => {
-            navigate('/'); // Redirect to dashboard/home
-          }, 2000);
+          setTimeout(() => navigate('/'), 2000);
         } else {
-          // Normal flow: OTP required
           setMessage(data.message);
-          setTimeout(() => {
-            navigate('/verify-otp', { state: { email } });
-          }, 2000);
+          setTimeout(() => navigate('/verify-otp', { state: { email } }), 2000);
         }
       } else {
         setError(data.message);
@@ -89,8 +119,24 @@ const LoginPage = () => {
                 {loading ? 'Logging in...' : 'Login'}
               </button>
             </form>
+
+            <div className="auth-separator">
+              <span>OR</span>
+            </div>
+            
+            <button 
+              className="google-btn" 
+              onClick={() => googleLogin()}
+              disabled={loading}
+              style={{ width: '100%' }}
+            >
+              <FcGoogle size={22} />
+              <span>Login with Google</span>
+            </button>
+
             {message && <p className="success-message">{message}</p>}
             {error && <p className="error-message">{error}</p>}
+            
             <p className="auth-switch-link">
               New user? <Link to="/register">Register now</Link>
             </p>

@@ -1,5 +1,9 @@
+// frontend/src/pages/auth/RegisterPage.jsx
+
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useGoogleLogin } from '@react-oauth/google';
+import { FcGoogle } from 'react-icons/fc';
 import Header from '../../components/header';
 import ParticleBackground from '../../components/ParticleBackground';
 import EyeIcon from '../../components/EyeIcon';
@@ -15,6 +19,39 @@ const RegisterPage = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
+  // Google Signup (Already correct)
+  const googleSignup = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      setLoading(true);
+      setMessage('');
+      setError('');
+      try {
+        const response = await fetch('http://localhost:3001/auth/google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ googleAccessToken: tokenResponse.access_token }),
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          localStorage.setItem('token', data.token);
+          setMessage('Google sign up successful! Redirecting...');
+          setTimeout(() => navigate('/'), 2000);
+        } else {
+          setError(data.message || 'Google sign up failed');
+        }
+      } catch (err) {
+        console.error('Google Sign Up Error:', err);
+        setError('Google sign up failed. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    onError: () => setError('Google Sign Up Failed'),
+  });
+
+  // Manual Register - FIXED URL
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -22,7 +59,8 @@ const RegisterPage = () => {
     setError('');
 
     try {
-      const response = await fetch('/auth/register', {
+      // CHANGED: Use absolute URL to hit Backend directly
+      const response = await fetch('http://localhost:3001/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),
@@ -88,8 +126,24 @@ const RegisterPage = () => {
                 {loading ? 'Registering...' : 'Register'}
               </button>
             </form>
+
+            <div className="auth-separator">
+              <span>OR</span>
+            </div>
+
+            <button 
+              className="google-btn" 
+              onClick={() => googleSignup()}
+              disabled={loading}
+              style={{ width: '100%' }}
+            >
+              <FcGoogle size={22} />
+              <span>Sign up with Google</span>
+            </button>
+
             {message && <p className="success-message">{message}</p>}
             {error && <p className="error-message">{error}</p>}
+            
             <p className="auth-switch-link">
               Have an account already? <Link to="/login">Log in</Link>
             </p>

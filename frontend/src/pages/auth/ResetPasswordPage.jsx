@@ -40,7 +40,8 @@ const ResetPasswordPage = () => {
     }
 
     try {
-      const response = await fetch('/auth/reset-password', {
+      // FIX: Use absolute URL http://localhost:3001
+      const response = await fetch('http://localhost:3001/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password }),
