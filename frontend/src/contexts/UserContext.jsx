@@ -1,5 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
+// Define API Base URL - proxy doesn't work reliably in development
+const API_BASE = 'http://localhost:3001';
+
 const UserContext = createContext();
 
 export const useUser = () => {
@@ -25,7 +28,7 @@ export const UserProvider = ({ children }) => {
     }
 
     try {
-      const res = await fetch('/api/profile', {
+      const res = await fetch(`${API_BASE}/api/profile`, {
         headers: {
           'x-auth-token': token
         }

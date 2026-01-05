@@ -270,11 +270,13 @@ export const TranslationProvider = ({ children }) => {
 
   /**
    * Toggle between English and Japanese
+   * Only changes the language state - components handle their own translation
    */
   const toggleLanguage = useCallback(() => {
     const newLang = currentLang === 'en' ? 'ja' : 'en';
-    translatePage(newLang);
-  }, [currentLang, translatePage]);
+    setCurrentLang(newLang);
+    console.log(`🌐 Language switched to: ${newLang}`);
+  }, [currentLang]);
 
   /**
    * Clear translation cache

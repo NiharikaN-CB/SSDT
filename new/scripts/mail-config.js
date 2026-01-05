@@ -1,18 +1,42 @@
 import dns from 'dns';
-import URL from 'url-parse';
 import middleware from './_common/middleware.js';
 
-// TODO: Fix.
+// Use promises API for DNS
+const dnsPromises = dns.promises;
 
-const mailConfigHandler = async (url, event, context) => {
+const mailConfigHandler = async (url) => {
   try {
-    const domain = new URL(url).hostname || new URL(url).pathname;
+    // Parse domain from URL - handle both full URLs and bare domains
+    let domain;
+    try {
+      // Try to parse as full URL first
+      const parsed = new URL(url);
+      domain = parsed.hostname;
+    } catch {
+      // If not a valid URL, treat it as a bare domain
+      // Remove any protocol prefix and path
+      domain = url.replace(/^(?:https?:\/\/)?/i, '').split('/')[0];
+    }
+
+    if (!domain) {
+      throw new Error('Could not extract domain from URL');
+    }
 
     // Get MX records
-    const mxRecords = await dns.resolveMx(domain);
+    let mxRecords = [];
+    try {
+      mxRecords = await dnsPromises.resolveMx(domain);
+    } catch (e) {
+      // No MX records
+    }
 
     // Get TXT records
-    const txtRecords = await dns.resolveTxt(domain);
+    let txtRecords = [];
+    try {
+      txtRecords = await dnsPromises.resolveTxt(domain);
+    } catch (e) {
+      // No TXT records
+    }
 
     // Filter for only email related TXT records (SPF, DKIM, DMARC, and certain provider verifications)
     const emailTxtRecords = txtRecords.filter(record => {
@@ -62,18 +86,16 @@ const mailConfigHandler = async (url, event, context) => {
     }
 
     return {
-        mxRecords,
-        txtRecords: emailTxtRecords,
-        mailServices,
-      };
+      domain,
+      mxRecords,
+      txtRecords: emailTxtRecords,
+      mailServices,
+    };
   } catch (error) {
     if (error.code === 'ENOTFOUND' || error.code === 'ENODATA') {
       return { skipped: 'No mail server in use on this domain' };
     } else {
-      return {
-        statusCode: 500,
-        body: { error: error.message },
-      };
+      throw new Error(error.message);
     }
   }
 };

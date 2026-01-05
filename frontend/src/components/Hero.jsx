@@ -7,6 +7,19 @@ import '../styles/HeroReport.scss';
 // Define API Base URL to avoid port mismatch issues
 const API_BASE = 'http://localhost:3001';
 
+// 🔄 Loading Placeholder Component for progressive loading
+const LoadingPlaceholder = ({ height = '1.5rem', width = '100%', style = {} }) => (
+  <div
+    className="loading-placeholder"
+    style={{
+      height,
+      width,
+      minHeight: height,
+      ...style
+    }}
+  />
+);
+
 const Hero = () => {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -14,10 +27,8 @@ const Hero = () => {
   const [loadingStage, setLoadingStage] = useState('');
   const [error, setError] = useState(null);
 
-  // ⚡ ZAP Specific State
-  const [zapReport, setZapReport] = useState(null);
-  const [zapLoading, setZapLoading] = useState(false);
-  const [zapError, setZapError] = useState(null);
+  // ⚡ ZAP is now handled by backend combined scan - keeping zapReport for backward compatibility with useEffect
+  const [zapReport] = useState(null);
 
   // 🔍 WebCheck Specific State
   const [webCheckReport, setWebCheckReport] = useState(null);
@@ -25,58 +36,77 @@ const Hero = () => {
   const [webCheckError, setWebCheckError] = useState(null);
 
   const navigate = useNavigate();
-  const { currentLang, translatePage, setHasReport } = useTranslation();
+  const { currentLang, setHasReport } = useTranslation();
 
-  // Re-translate when report loads
+  // 🌐 Report Translation State
+  const [translatedReport, setTranslatedReport] = useState(null);
+  const [isTranslatingReport, setIsTranslatingReport] = useState(false);
+
+  // Translate entire report when language changes
   useEffect(() => {
     if (report || zapReport) {
       setHasReport(true);
-      if (currentLang === 'ja') {
-        setTimeout(() => {
-          translatePage('ja');
-        }, 500);
-      }
     } else {
       setHasReport(false);
     }
-  }, [report, zapReport, webCheckReport, currentLang, translatePage, setHasReport]);
+  }, [report, zapReport, webCheckReport, setHasReport]);
 
-  // ⚡ Helper: Run ZAP Scan independently
-  const runZapScan = async (url, token) => {
-    try {
-      console.log('⚡ Starting ZAP Active Scan for:', url);
-      setZapLoading(true);
-      setZapReport(null);
-      setZapError(null);
+  // Translate the report when language changes to Japanese
+  useEffect(() => {
+    const translateReport = async () => {
+      const refinedReport = report?.refinedReport;
 
-      // 👇 FIXED: Use API_BASE (port 3001)
-      const res = await fetch(`${API_BASE}/api/zap/scan`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-auth-token': token
-        },
-        body: JSON.stringify({ url }),
-      });
+      // Don't translate if no report or already translated
+      if (!refinedReport) return;
+      if (currentLang !== 'ja') return; // Just don't translate, but keep the cached version
+      if (translatedReport) return; // Already have translation cached
 
-      const data = await res.json();
+      setIsTranslatingReport(true);
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_BASE}/api/translate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-auth-token': token
+          },
+          body: JSON.stringify({
+            texts: [refinedReport],
+            targetLang: 'ja'
+          })
+        });
 
-      if (data.success || data.data) {
-        setZapReport(data.data || data);
-      } else {
-        console.warn("ZAP Scan returned no data");
+        if (response.ok) {
+          const data = await response.json();
+          if (data.translated && data.translated[0]) {
+            setTranslatedReport(data.translated[0]);
+            console.log('✅ Report translated to Japanese (cached for future use)');
+          }
+        }
+      } catch (err) {
+        console.error('❌ Report translation failed:', err);
+      } finally {
+        setIsTranslatingReport(false);
       }
-    } catch (err) {
-      console.error('❌ ZAP Error:', err);
-      setZapError(err.message);
-    } finally {
-      setZapLoading(false);
-    }
-  };
+    };
+
+    translateReport();
+  }, [report?.refinedReport, currentLang, translatedReport]);
+
+  // ⚡ ZAP scan is now integrated in the backend combined scan
+  // No need for independent frontend ZAP call
 
   // 🔍 Helper: Run WebCheck Scans in parallel
   const runWebCheckScans = async (url, token) => {
-    const scanTypes = ['ssl', 'dns', 'headers', 'http-security', 'tech-stack', 'firewall', 'cookies', 'robots-txt', 'ports'];
+    // ALL 30 WebCheck scan types
+    const scanTypes = [
+      'ssl', 'dns', 'headers', 'cookies', 'firewall', 'ports',
+      'screenshot', 'tech-stack', 'hsts', 'security-txt', 'block-lists',
+      'social-tags', 'linked-pages', 'robots-txt', 'sitemap', 'status',
+      'redirects', 'mail-config', 'trace-route', 'http-security', 'get-ip',
+      'dns-server', 'dnssec', 'txt-records', 'carbon', 'archives',
+      'legacy-rank', 'whois', 'tls', 'quality'
+    ];
 
     try {
       console.log('🔍 Starting WebCheck scans for:', url);
@@ -141,8 +171,8 @@ const Hero = () => {
     setError(null);
     setReport(null);
 
-    // ⚡ Trigger ZAP Scan in background (Parallel)
-    runZapScan(url, token);
+    // ⚡ ZAP is now integrated in the backend combined scan
+    // No need to run independently - this ensures Gemini waits for ZAP completion
 
     // 🔍 Trigger WebCheck Scans in background (Parallel)
     runWebCheckScans(url, token);
@@ -230,11 +260,12 @@ const Hero = () => {
             const hasVt = analysisData.hasVtResult;
             const hasPsi = analysisData.hasPsiResult;
             const hasObs = analysisData.hasObservatoryResult;
+            const hasZap = analysisData.hasZapResult;
             const hasAi = analysisData.hasRefinedReport;
 
             if (!hasVt) statusMessage = '🔍 Running VirusTotal scan...';
-            else if (!hasPsi || !hasObs) statusMessage = '📊 Fetching PageSpeed & Observatory...';
-            else if (!hasAi) statusMessage = '🤖 Generating AI report...';
+            else if (!hasPsi || !hasObs || !hasZap) statusMessage = '📊 Fetching PageSpeed, Observatory & ZAP...';
+            else if (!hasAi) statusMessage = '🤖 Generating AI report (with ZAP data)...';
             else statusMessage = '✅ Finalizing results...';
 
             setLoadingStage(statusMessage);
@@ -260,99 +291,16 @@ const Hero = () => {
     }
   };
 
-  // Render partial results during loading (progressive display)
-  const renderPartialReport = () => {
-    if (!report) return null;
-
-    const vtStats = report?.vtStats || {};
-    const psiScores = report?.psiScores || null;
-    const observatoryData = report?.observatoryData || null;
-    const totalEngines = report?.vtResult?.data?.attributes?.results ? Object.keys(report.vtResult.data.attributes.results).length : 0;
-    const maliciousCount = vtStats?.malicious || 0;
-
-    return (
-      <div className="partial-results" style={{ marginTop: '1.5rem', opacity: 0.9 }}>
-        <h4 style={{ margin: '0 0 1rem 0', color: 'var(--accent)' }}>📊 Live Results for {report.target}</h4>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem' }}>
-          {/* VT Security */}
-          <div style={{ background: 'var(--card-bg)', padding: '0.75rem', borderRadius: '6px', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.8rem', marginBottom: '0.25rem' }}>🛡️ Security</div>
-            {report.hasVtResult ? (
-              <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: maliciousCount > 0 ? '#e81123' : '#00d084' }}>
-                {maliciousCount}/{totalEngines}
-              </div>
-            ) : (
-              <div style={{ color: '#888' }}>Loading...</div>
-            )}
-          </div>
-          {/* Performance */}
-          <div style={{ background: 'var(--card-bg)', padding: '0.75rem', borderRadius: '6px', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.8rem', marginBottom: '0.25rem' }}>⚡ Performance</div>
-            {psiScores?.performance != null ? (
-              <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: psiScores.performance >= 90 ? '#00d084' : psiScores.performance >= 50 ? '#ffb900' : '#e81123' }}>
-                {psiScores.performance}
-              </div>
-            ) : (
-              <div style={{ color: '#888' }}>Loading...</div>
-            )}
-          </div>
-          {/* Observatory */}
-          <div style={{ background: 'var(--card-bg)', padding: '0.75rem', borderRadius: '6px', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.8rem', marginBottom: '0.25rem' }}>🔒 Security Config</div>
-            {observatoryData?.grade ? (
-              <div style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{observatoryData.grade}</div>
-            ) : (
-              <div style={{ color: '#888' }}>Loading...</div>
-            )}
-          </div>
-          {/* AI Report */}
-          <div style={{ background: 'var(--card-bg)', padding: '0.75rem', borderRadius: '6px', textAlign: 'center' }}>
-            <div style={{ fontSize: '0.8rem', marginBottom: '0.25rem' }}>🤖 AI Report</div>
-            {report.hasRefinedReport ? (
-              <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#00d084' }}>Ready</div>
-            ) : (
-              <div style={{ color: '#888' }}>Generating...</div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
+  // Note: renderPartialReport removed - replaced by progressive loading in main report layout
 
   const renderReport = () => {
-    // Show loading state with progress checklist
-    if (loading) {
-      return (
-        <div className="loading-message">
-          <p>🔍 {loadingStage || 'Analyzing URL...'}</p>
-          <div style={{
-            marginTop: '1rem',
-            padding: '0.5rem',
-            background: 'var(--card-bg)',
-            borderRadius: '4px',
-            fontSize: '0.85rem'
-          }}>
-            <div style={{ marginBottom: '0.5rem' }}><strong>Analysis Steps:</strong></div>
-            <div style={{ paddingLeft: '1rem' }}>
-              <div style={{ opacity: report?.hasVtResult ? 1 : 0.5 }}>{report?.hasVtResult ? '✅' : '⏳'} VirusTotal Security Scan</div>
-              <div style={{ opacity: report?.hasPsiResult ? 1 : 0.5 }}>{report?.hasPsiResult ? '✅' : '⏳'} PageSpeed Analysis</div>
-              <div style={{ opacity: report?.hasObservatoryResult ? 1 : 0.5 }}>{report?.hasObservatoryResult ? '✅' : '⏳'} Mozilla Observatory</div>
-              <div style={{ opacity: report?.hasRefinedReport ? 1 : 0.5 }}>{report?.hasRefinedReport ? '✅' : '⏳'} AI Report Generation</div>
-              <div style={{ opacity: 1 }}>{zapLoading ? '⏳' : (zapReport ? '✅' : '⏳')} {zapLoading ? 'OWASP ZAP (Running...)' : (zapReport ? 'OWASP ZAP Complete' : 'OWASP ZAP Scan')}</div>
-              <div style={{ opacity: 1 }}>{webCheckLoading ? '⏳' : (webCheckReport ? '✅' : '⏳')} {webCheckLoading ? 'WebCheck (Running...)' : (webCheckReport ? 'WebCheck Complete' : 'WebCheck Scans')}</div>
-            </div>
-          </div>
-
-          {/* Show partial results during loading */}
-          {report && report.target && renderPartialReport()}
-        </div>
-      );
-    }
-
-
+    // Show error if present
     if (error) return <p className="error-msg">{error}</p>;
-    if (!report) return null;
 
+    // Don't render anything if no report and not loading
+    if (!report && !loading) return null;
+
+    // Extract data - will be null/empty during loading
     const vtStats = report?.vtStats || {};
     const psiScores = report?.psiScores || {};
     const observatoryData = report?.observatoryData || null;
@@ -394,37 +342,71 @@ const Hero = () => {
       }
     };
 
+    // ⚡ ZAP Helpers - Now using backend zapData
     let zapRiskLabel = "Passed";
     let zapRiskColor = "#00d084";
-    if (zapReport && zapReport.riskCounts) {
-      if (zapReport.riskCounts.High > 0) { zapRiskLabel = "High Risk"; zapRiskColor = "#e81123"; }
-      else if (zapReport.riskCounts.Medium > 0) { zapRiskLabel = "Medium Risk"; zapRiskColor = "#ff8c00"; }
-      else if (zapReport.riskCounts.Low > 0) { zapRiskLabel = "Low Risk"; zapRiskColor = "#ffb900"; }
+    const backendZapData = report?.zapData;
+    if (backendZapData && backendZapData.riskCounts) {
+      if (backendZapData.riskCounts.High > 0) { zapRiskLabel = "High Risk"; zapRiskColor = "#e81123"; }
+      else if (backendZapData.riskCounts.Medium > 0) { zapRiskLabel = "Medium Risk"; zapRiskColor = "#ff8c00"; }
+      else if (backendZapData.riskCounts.Low > 0) { zapRiskLabel = "Low Risk"; zapRiskColor = "#ffb900"; }
     }
 
     return (
       <div className="report-container">
-        <h3 className="report-title">📊 Combined Scan Report for {report.target}</h3>
-        <p>Status: <b>{report.status}</b></p>
-
-        {/* AI Summary */}
-        {refinedReport && (
-          <div className="ai-report-section" style={{
-            background: 'var(--card-bg)',
-            padding: '1.5rem',
-            marginBottom: '2rem',
-            borderRadius: '8px',
-            border: '2px solid var(--accent)',
-            fontFamily: 'monospace',
-            whiteSpace: 'pre-wrap',
-            lineHeight: '1.6',
-            fontSize: '0.9rem',
-            textAlign: 'justify'
-          }}>
-            <h4 style={{ marginTop: 0, color: 'var(--accent)' }}>🤖 AI-Generated Analysis Summary</h4>
-            {refinedReport.replace(/```markdown|```/g, '').replace(/^#{1,6}\s+/gm, '')}
+        {/* 🔄 Progress Bar - Show during loading */}
+        {loading && (
+          <div className="scan-progress-bar">
+            <div className="progress-header">
+              <span className="progress-title">🔍 Scanning {report?.target || 'URL'}...</span>
+              <span className="progress-percentage">{loadingProgress}%</span>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${loadingProgress}%` }} />
+            </div>
+            <div className="progress-stage">{loadingStage}</div>
           </div>
         )}
+
+        <h3 className="report-title">📊 Combined Scan Report {report?.target ? `for ${report.target}` : ''}</h3>
+        {report?.status && <p>Status: <b>{report.status}</b></p>}
+
+        {/* AI Summary - Shows loading placeholder or content */}
+        <div className="ai-report-section" style={{
+          background: 'var(--card-bg)',
+          padding: '1.5rem',
+          marginBottom: '2rem',
+          borderRadius: '8px',
+          border: '2px solid var(--accent)',
+          fontFamily: 'monospace',
+          whiteSpace: 'pre-wrap',
+          lineHeight: '1.6',
+          fontSize: '0.9rem',
+          textAlign: 'justify'
+        }}>
+          <h4 style={{ marginTop: 0, color: 'var(--accent)' }}>🤖 AI-Generated Analysis Summary</h4>
+          {refinedReport ? (
+            isTranslatingReport ? (
+              <div style={{ textAlign: 'center', padding: '1rem' }}>
+                <p style={{ color: 'var(--accent)' }}>🌐 Translating report to Japanese...</p>
+              </div>
+            ) : (
+              (currentLang === 'ja' && translatedReport ? translatedReport : refinedReport)
+                .replace(/```markdown|```/g, '').replace(/^#{1,6}\s+/gm, '')
+            )
+          ) : (
+            <div className="loading-pulse">
+              <LoadingPlaceholder height="1rem" style={{ marginBottom: '0.5rem' }} />
+              <LoadingPlaceholder height="1rem" width="95%" style={{ marginBottom: '0.5rem' }} />
+              <LoadingPlaceholder height="1rem" width="88%" style={{ marginBottom: '0.5rem' }} />
+              <LoadingPlaceholder height="1rem" width="92%" style={{ marginBottom: '0.5rem' }} />
+              <LoadingPlaceholder height="1rem" width="75%" style={{ marginBottom: '0.5rem' }} />
+              <p style={{ color: 'var(--accent)', marginTop: '1rem', textAlign: 'center' }}>
+                ⏳ Generating AI analysis... (waiting for all scan data)
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* Combined Scores Grid */}
         <div className="combined-scores" style={{
@@ -434,71 +416,98 @@ const Hero = () => {
           marginBottom: '2rem'
         }}>
           {/* Security (VirusTotal) */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasVtResult ? '1px dashed var(--accent)' : 'none' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🛡️ Security</h4>
-            <span className={`risk-level ${riskClass}`} style={{ fontSize: '1.5rem' }}>{riskLevel}</span>
-            <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>{maliciousCount}/{totalEngines} malicious</p>
-          </div>
-
-          {/* ⚡ NEW: OWASP ZAP Score Card */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: zapLoading ? '1px dashed var(--accent)' : 'none' }}>
-            <h4 style={{ margin: '0 0 0.5rem 0' }}>⚡ OWASP ZAP</h4>
-            {zapLoading ? (
-              <div style={{ color: 'var(--accent)', fontSize: '1.2rem', marginTop: '10px' }}>Scanning...</div>
-            ) : zapReport ? (
+            {report?.hasVtResult ? (
               <>
-                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: zapRiskColor }}>{zapRiskLabel}</span>
-                <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>{zapReport.alerts ? zapReport.alerts.length : 0} Alerts</p>
+                <span className={`risk-level ${riskClass}`} style={{ fontSize: '1.5rem' }}>{riskLevel}</span>
+                <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>{maliciousCount}/{totalEngines} malicious</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{zapError ? 'Scan Failed' : 'Waiting...'}</div>
+              <div className="loading-pulse">
+                <LoadingPlaceholder height="1.5rem" width="60%" style={{ margin: '0.5rem auto' }} />
+                <LoadingPlaceholder height="0.85rem" width="50%" style={{ margin: '0 auto' }} />
+              </div>
+            )}
+          </div>
+
+          {/* ⚡ OWASP ZAP Score Card - Now uses backend data */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasZapResult ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>⚡ OWASP ZAP</h4>
+            {report?.hasZapResult && backendZapData ? (
+              <>
+                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: zapRiskColor }}>{zapRiskLabel}</span>
+                <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>{backendZapData.alerts ? backendZapData.alerts.length : 0} Alerts</p>
+              </>
+            ) : report?.zapResult?.error || (report?.status === 'completed' && !report?.hasZapResult) ? (
+              <div style={{ color: '#ffb900', marginTop: '10px' }}>Unavailable</div>
+            ) : (
+              <div className="loading-pulse">
+                <LoadingPlaceholder height="1.5rem" width="60%" style={{ margin: '0.5rem auto' }} />
+                <LoadingPlaceholder height="0.85rem" width="40%" style={{ margin: '0 auto' }} />
+              </div>
             )}
           </div>
 
           {/* Performance (PSI) */}
-          {psiScores.performance !== null && (
-            <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
-              <h4 style={{ margin: '0 0 0.5rem 0' }}>⚡ Performance</h4>
-              <span className={getScoreClass(psiScores.performance)} style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{psiScores.performance}</span>
-              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>out of 100</p>
-            </div>
-          )}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasPsiResult ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>⚡ Performance</h4>
+            {psiScores?.performance != null ? (
+              <>
+                <span className={getScoreClass(psiScores.performance)} style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{psiScores.performance}</span>
+                <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>out of 100</p>
+              </>
+            ) : (
+              <div className="loading-pulse">
+                <LoadingPlaceholder height="1.5rem" width="50%" style={{ margin: '0.5rem auto' }} />
+                <LoadingPlaceholder height="0.85rem" width="40%" style={{ margin: '0 auto' }} />
+              </div>
+            )}
+          </div>
 
-          {/* Accessibility */}
-          {psiScores.accessibility !== null && (
-            <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
-              <h4 style={{ margin: '0 0 0.5rem 0' }}>♿ Accessibility</h4>
-              <span className={getScoreClass(psiScores.accessibility)} style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{psiScores.accessibility}</span>
-              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>out of 100</p>
-            </div>
-          )}
 
-          {/* Best Practices */}
-          {psiScores.bestPractices !== null && (
-            <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
-              <h4 style={{ margin: '0 0 0.5rem 0' }}>✅ Best Practices</h4>
-              <span className={getScoreClass(psiScores.bestPractices)} style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{psiScores.bestPractices}</span>
-              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>out of 100</p>
-            </div>
-          )}
-
-          {/* SEO */}
-          {psiScores.seo !== null && (
-            <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
-              <h4 style={{ margin: '0 0 0.5rem 0' }}>🔍 SEO</h4>
-              <span className={getScoreClass(psiScores.seo)} style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{psiScores.seo}</span>
-              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>out of 100</p>
-            </div>
-          )}
 
           {/* Security Config (Observatory) */}
-          {observatoryData && (
-            <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
-              <h4 style={{ margin: '0 0 0.5rem 0' }}>🔒 Security Config</h4>
-              <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: getObservatoryGradeColor(observatoryData.grade) }}>{observatoryData.grade}</span>
-              <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>Mozilla Observatory</p>
-            </div>
-          )}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasObservatoryResult ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🔒 Security Config</h4>
+            {observatoryData?.grade ? (
+              <>
+                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: getObservatoryGradeColor(observatoryData.grade) }}>{observatoryData.grade}</span>
+                <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>Mozilla Observatory</p>
+              </>
+            ) : (
+              <div className="loading-pulse">
+                <LoadingPlaceholder height="1.5rem" width="40%" style={{ margin: '0.5rem auto' }} />
+                <LoadingPlaceholder height="0.85rem" width="60%" style={{ margin: '0 auto' }} />
+              </div>
+            )}
+          </div>
+
+          {/* 🔍 URLScan.io Security Verdict */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasUrlscanResult ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🌐 URLScan.io</h4>
+            {report?.hasUrlscanResult && report?.urlscanData ? (
+              <>
+                <span style={{
+                  fontSize: '1.5rem',
+                  fontWeight: 'bold',
+                  color: report.urlscanData.verdicts?.overall?.malicious ? '#e81123' : '#00d084'
+                }}>
+                  {report.urlscanData.verdicts?.overall?.malicious ? 'Malicious' : 'Clean'}
+                </span>
+                <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                  {report.urlscanData.verdicts?.overall?.score || 0} threat score
+                </p>
+              </>
+            ) : report?.urlscanResult?.error || (report?.status === 'completed' && !report?.hasUrlscanResult) ? (
+              <div style={{ color: '#ffb900', marginTop: '10px' }}>Unavailable</div>
+            ) : (
+              <div className="loading-pulse">
+                <LoadingPlaceholder height="1.5rem" width="50%" style={{ margin: '0.5rem auto' }} />
+                <LoadingPlaceholder height="0.85rem" width="40%" style={{ margin: '0 auto' }} />
+              </div>
+            )}
+          </div>
 
           {/* 🔍 WebCheck: SSL Certificate */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
@@ -540,14 +549,26 @@ const Hero = () => {
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🛠️ Tech Stack</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
-            ) : webCheckReport?.['tech-stack']?.technologies ? (
-              <>
-                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#00d084' }}>{webCheckReport['tech-stack'].technologies.length}</span>
-                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Technologies Detected</p>
-              </>
-            ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
-            )}
+            ) : (() => {
+              // Handle various response formats from tech-stack scan
+              const techData = webCheckReport?.['tech-stack'];
+              const techArray = techData?.technologies ||
+                (Array.isArray(techData) ? techData : null) ||
+                (techData && !techData.error && typeof techData === 'object' ? Object.keys(techData) : null);
+
+              if (techArray && techArray.length > 0) {
+                return (
+                  <>
+                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#00d084' }}>{techArray.length}</span>
+                    <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Technologies Detected</p>
+                  </>
+                );
+              } else if (techData && !techData.error) {
+                return <div style={{ color: '#888', marginTop: '10px' }}>No technologies detected</div>;
+              } else {
+                return <div style={{ color: '#888', marginTop: '10px' }}>{techData?.error ? 'Scan Failed' : 'Pending'}</div>;
+              }
+            })()}
           </div>
 
           {/* 🔍 WebCheck: Firewall/WAF */}
@@ -566,15 +587,379 @@ const Hero = () => {
               <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
             )}
           </div>
+
+          {/* 🔍 WebCheck: TLS Grade */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🔒 TLS Grade</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.tls && !webCheckReport.tls.error ? (
+              <>
+                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: getObservatoryGradeColor(webCheckReport.tls.tlsInfo?.grade) }}>
+                  {webCheckReport.tls.tlsInfo?.grade || 'N/A'}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Score: {webCheckReport.tls.tlsInfo?.score || 0}/100</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Quality (PageSpeed) */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>📊 Quality</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.quality && !webCheckReport.quality.error ? (
+              (() => {
+                const perfScore = Math.round((webCheckReport.quality.lighthouseResult?.categories?.performance?.score || 0) * 100);
+                return (
+                  <>
+                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: perfScore >= 90 ? '#00d084' : perfScore >= 50 ? '#ffb900' : '#e81123' }}>
+                      {perfScore}
+                    </span>
+                    <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Lighthouse Score</p>
+                  </>
+                );
+              })()
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Mail Config */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>📧 Mail Config</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.['mail-config'] && !webCheckReport['mail-config'].error && !webCheckReport['mail-config'].skipped ? (
+              <>
+                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#00d084' }}>
+                  {webCheckReport['mail-config'].mxRecords?.length || 0}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>MX Records Found</p>
+              </>
+            ) : webCheckReport?.['mail-config']?.skipped ? (
+              <div style={{ color: '#888', marginTop: '10px' }}>No Mail Server</div>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: WHOIS */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>📋 WHOIS</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.whois && !webCheckReport.whois.error ? (
+              <>
+                <span style={{ fontSize: '0.9rem', fontWeight: 'bold', color: '#00d084' }}>
+                  {webCheckReport.whois.registrar?.substring(0, 20) || 'Found'}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Domain Registered</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: HSTS */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🔐 HSTS</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.hsts && !webCheckReport.hsts.error ? (
+              <>
+                <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: webCheckReport.hsts.hstsEnabled ? '#00d084' : '#e81123' }}>
+                  {webCheckReport.hsts.hstsEnabled ? 'Enabled' : 'Disabled'}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.hsts.hstsPreloaded ? 'Preloaded' : 'Not Preloaded'}</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Block Lists */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🚫 Block Lists</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.['block-lists'] && !webCheckReport['block-lists'].error ? (
+              (() => {
+                const blocklists = webCheckReport['block-lists'].blocklists || [];
+                const blockedCount = blocklists.filter(b => b.isBlocked).length;
+                return (
+                  <>
+                    <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: blockedCount === 0 ? '#00d084' : '#e81123' }}>
+                      {blockedCount === 0 ? 'Clean' : `${blockedCount} Found`}
+                    </span>
+                    <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{blocklists.length} Lists Checked</p>
+                  </>
+                );
+              })()
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Carbon Footprint */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🌱 Carbon</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.carbon && !webCheckReport.carbon.error ? (
+              <>
+                <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: webCheckReport.carbon.isGreen ? '#00d084' : '#ffb900' }}>
+                  {webCheckReport.carbon.isGreen ? 'Green' : 'Standard'}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.carbon.co2?.grid?.grams ? `${webCheckReport.carbon.co2.grid.grams.toFixed(2)}g CO2` : 'Hosting'}</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Archives */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>📚 Archives</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.archives?.skipped ? (
+              <div style={{ color: '#888', marginTop: '10px' }}>Not Archived</div>
+            ) : webCheckReport?.archives?.totalScans ? (
+              <>
+                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#00d084' }}>
+                  {webCheckReport.archives.totalScans}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Wayback Snapshots</p>
+              </>
+            ) : webCheckReport?.archives?.error ? (
+              <div style={{ color: '#ffb900', marginTop: '10px' }}>Timeout</div>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Sitemap */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🗺️ Sitemap</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.sitemap?.skipped || webCheckReport?.sitemap?.error ? (
+              <div style={{ color: '#888', marginTop: '10px' }}>Not Found</div>
+            ) : webCheckReport?.sitemap?.urlset ? (
+              <>
+                <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#00d084' }}>
+                  {webCheckReport.sitemap.urlset?.url?.length || 'Found'}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>URLs in Sitemap</p>
+              </>
+            ) : webCheckReport?.sitemap ? (
+              <div style={{ color: '#00d084', marginTop: '10px' }}>Found</div>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Social Tags */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>📱 Social Tags</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.['social-tags'] && !webCheckReport['social-tags'].error ? (
+              (() => {
+                const tags = webCheckReport['social-tags'];
+                const hasOg = tags.ogTitle || tags.openGraph?.title;
+                const hasTwitter = tags.twitterCard || tags.twitter?.card;
+                return (
+                  <>
+                    <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: (hasOg || hasTwitter) ? '#00d084' : '#ffb900' }}>
+                      {(hasOg && hasTwitter) ? 'Complete' : (hasOg || hasTwitter) ? 'Partial' : 'Missing'}
+                    </span>
+                    <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{hasOg ? 'OG' : ''}{hasOg && hasTwitter ? ' + ' : ''}{hasTwitter ? 'Twitter' : ''}</p>
+                  </>
+                );
+              })()
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Linked Pages */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🔗 Links</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.['linked-pages'] && !webCheckReport['linked-pages'].error ? (
+              <>
+                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#00d084' }}>
+                  {webCheckReport['linked-pages'].internal?.length || webCheckReport['linked-pages'].links?.length || 0}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Links Found</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Redirects */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>↪️ Redirects</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.redirects && !webCheckReport.redirects.error ? (
+              <>
+                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: (webCheckReport.redirects.redirects?.length || 0) <= 2 ? '#00d084' : '#ffb900' }}>
+                  {webCheckReport.redirects.redirects?.length || 0}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Redirect Hops</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: DNS Server */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🌐 DNS Server</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.['dns-server'] && !webCheckReport['dns-server'].error ? (
+              <>
+                <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#00d084' }}>
+                  {webCheckReport['dns-server'].dns?.length || 1}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Servers Found</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: DNSSEC */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🔑 DNSSEC</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.dnssec && !webCheckReport.dnssec.error ? (
+              <>
+                <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: webCheckReport.dnssec.isValid || webCheckReport.dnssec.enabled ? '#00d084' : '#ffb900' }}>
+                  {webCheckReport.dnssec.isValid || webCheckReport.dnssec.enabled ? 'Valid' : 'Not Set'}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>DNSSEC Status</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Security.txt */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>📄 Security.txt</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.['security-txt'] && !webCheckReport['security-txt'].error ? (
+              <>
+                <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: webCheckReport['security-txt'].isPresent || webCheckReport['security-txt'].found ? '#00d084' : '#ffb900' }}>
+                  {webCheckReport['security-txt'].isPresent || webCheckReport['security-txt'].found ? 'Found' : 'Missing'}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Security Policy</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Robots.txt */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🤖 Robots.txt</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.['robots-txt'] && !webCheckReport['robots-txt'].error ? (
+              <>
+                <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: webCheckReport['robots-txt'].exists || webCheckReport['robots-txt'].isPresent ? '#00d084' : '#ffb900' }}>
+                  {webCheckReport['robots-txt'].exists || webCheckReport['robots-txt'].isPresent ? 'Found' : 'Missing'}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Crawler Rules</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Status */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>🟢 Status</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.status && !webCheckReport.status.error ? (
+              <>
+                <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: webCheckReport.status.isUp || webCheckReport.status.statusCode === 200 ? '#00d084' : '#e81123' }}>
+                  {webCheckReport.status.statusCode || (webCheckReport.status.isUp ? '200' : 'Down')}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.status.responseTime ? `${webCheckReport.status.responseTime}ms` : 'HTTP Status'}</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
+
+          {/* 🔍 WebCheck: Legacy Rank */}
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+            <h4 style={{ margin: '0 0 0.5rem 0' }}>📈 Rank</h4>
+            {webCheckLoading ? (
+              <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
+            ) : webCheckReport?.['legacy-rank'] && !webCheckReport['legacy-rank'].error ? (
+              <>
+                <span style={{ fontSize: '1rem', fontWeight: 'bold', color: '#00d084' }}>
+                  #{webCheckReport['legacy-rank'].rank || webCheckReport['legacy-rank'].globalRank || 'N/A'}
+                </span>
+                <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Global Rank</p>
+              </>
+            ) : (
+              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+            )}
+          </div>
         </div>
 
-        {/* ⚡ NEW: OWASP ZAP Detailed Results */}
-        {zapReport && zapReport.alerts && (
+        {/* 📸 Screenshot Preview - Full Width (WebCheck or URLScan.io fallback) */}
+        {(() => {
+          // Try WebCheck screenshot first, then URLScan.io as fallback
+          const webCheckScreenshot = webCheckReport?.screenshot?.image && !webCheckReport?.screenshot?.error
+            ? `data:image/png;base64,${webCheckReport.screenshot.image}`
+            : null;
+          const urlscanScreenshot = report?.urlscanData?.screenshot || null;
+          const screenshotSrc = webCheckScreenshot || urlscanScreenshot;
+          const screenshotSource = webCheckScreenshot ? 'WebCheck' : (urlscanScreenshot ? 'URLScan.io' : null);
+
+          if (!screenshotSrc) return null;
+
+          return (
+            <div style={{ background: 'var(--card-bg)', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', border: '2px solid var(--accent)' }}>
+              <h4 style={{ margin: '0 0 1rem 0', color: 'var(--accent)' }}>📸 Website Screenshot <span style={{ fontSize: '0.75rem', color: '#888' }}>({screenshotSource})</span></h4>
+              <img
+                src={screenshotSrc}
+                alt="Website Screenshot"
+                style={{
+                  width: '100%',
+                  maxHeight: '400px',
+                  objectFit: 'contain',
+                  borderRadius: '8px',
+                  border: '1px solid var(--accent)'
+                }}
+              />
+            </div>
+          );
+        })()}
+
+        {/* ⚡ OWASP ZAP Detailed Results - Now uses backend data */}
+        {backendZapData && backendZapData.alerts && (
           <details style={{ marginBottom: '2rem' }}>
             <summary style={{ cursor: 'pointer', fontWeight: 'bold', padding: '1rem', background: 'var(--card-bg)', borderRadius: '8px', border: '1px solid var(--accent)' }}>
-              ⚡ View OWASP ZAP Vulnerabilities ({zapReport.alerts.length})
+              ⚡ View OWASP ZAP Vulnerabilities ({backendZapData.alerts.length})
             </summary>
-            {zapReport.alerts.length === 0 ? (
+            {backendZapData.alerts.length === 0 ? (
               <div style={{ padding: '1rem', color: '#00d084' }}>No active vulnerabilities found. Good job!</div>
             ) : (
               <table className="report-table" style={{ marginTop: '1rem' }}>
@@ -586,7 +971,7 @@ const Hero = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {zapReport.alerts.map((alert, idx) => (
+                  {backendZapData.alerts.map((alert, idx) => (
                     <tr key={idx} className={idx % 2 === 0 ? "even-row" : "odd-row"}>
                       <td style={{ fontWeight: 'bold', color: getZapRiskColor(alert.risk) }}>{alert.risk}</td>
                       <td>{alert.alert}</td>
@@ -640,18 +1025,27 @@ const Hero = () => {
               )}
 
               {/* Tech Stack */}
-              {webCheckReport['tech-stack']?.technologies && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
-                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🛠️ Technology Stack</h5>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    {webCheckReport['tech-stack'].technologies.slice(0, 15).map((tech, idx) => (
-                      <span key={idx} style={{ background: 'var(--accent)', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem' }}>
-                        {tech.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {(() => {
+                const techData = webCheckReport['tech-stack'];
+                const techArray = techData?.technologies ||
+                  (Array.isArray(techData) ? techData : null);
+
+                if (techArray && techArray.length > 0) {
+                  return (
+                    <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                      <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🛠️ Technology Stack</h5>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        {techArray.slice(0, 15).map((tech, idx) => (
+                          <span key={idx} style={{ background: 'var(--accent)', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem' }}>
+                            {typeof tech === 'object' ? (tech.name || tech.technology || JSON.stringify(tech)) : tech}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               {/* Open Ports */}
               {webCheckReport.ports?.openPorts && (
@@ -667,6 +1061,109 @@ const Hero = () => {
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🍪 Cookies</h5>
                   <p><b>Header Cookies:</b> {webCheckReport.cookies.headerCookies?.length || 0}</p>
                   <p><b>Client Cookies:</b> {webCheckReport.cookies.clientCookies?.length || 0}</p>
+                </div>
+              )}
+
+              {/* WHOIS Details */}
+              {webCheckReport.whois && !webCheckReport.whois.error && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📋 WHOIS Information</h5>
+                  <p><b>Registrar:</b> {webCheckReport.whois.registrar || 'N/A'}</p>
+                  <p><b>Created:</b> {webCheckReport.whois.createdDate || webCheckReport.whois.created || 'N/A'}</p>
+                  <p><b>Expires:</b> {webCheckReport.whois.expiresDate || webCheckReport.whois.expires || 'N/A'}</p>
+                  <p><b>Updated:</b> {webCheckReport.whois.updatedDate || webCheckReport.whois.updated || 'N/A'}</p>
+                </div>
+              )}
+
+              {/* Mail Config Details */}
+              {webCheckReport['mail-config'] && !webCheckReport['mail-config'].error && !webCheckReport['mail-config'].skipped && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📧 Mail Configuration</h5>
+                  <p><b>MX Records:</b> {webCheckReport['mail-config'].mxRecords?.length || 0}</p>
+                  {webCheckReport['mail-config'].mxRecords?.slice(0, 3).map((mx, idx) => (
+                    <p key={idx} style={{ fontSize: '0.85rem', marginLeft: '1rem' }}>
+                      {mx.exchange} (priority: {mx.priority})
+                    </p>
+                  ))}
+                  <p><b>Mail Services:</b> {webCheckReport['mail-config'].mailServices?.map(s => s.provider).join(', ') || 'None detected'}</p>
+                </div>
+              )}
+
+              {/* TLS Details */}
+              {webCheckReport.tls && !webCheckReport.tls.error && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🔒 TLS Security (Observatory)</h5>
+                  <p><b>Grade:</b> <span style={{ color: getObservatoryGradeColor(webCheckReport.tls.tlsInfo?.grade), fontWeight: 'bold' }}>{webCheckReport.tls.tlsInfo?.grade || 'N/A'}</span></p>
+                  <p><b>Score:</b> {webCheckReport.tls.tlsInfo?.score || 0}/100</p>
+                  <p><b>Host:</b> {webCheckReport.tls.tlsInfo?.host || 'N/A'}</p>
+                </div>
+              )}
+
+              {/* Social Tags Details */}
+              {webCheckReport['social-tags'] && !webCheckReport['social-tags'].error && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📱 Social Media Tags</h5>
+                  <p><b>OG Title:</b> {webCheckReport['social-tags'].ogTitle || webCheckReport['social-tags'].openGraph?.title || 'N/A'}</p>
+                  <p><b>OG Description:</b> {(webCheckReport['social-tags'].ogDescription || webCheckReport['social-tags'].openGraph?.description || 'N/A').substring(0, 100)}</p>
+                  <p><b>Twitter Card:</b> {webCheckReport['social-tags'].twitterCard || webCheckReport['social-tags'].twitter?.card || 'N/A'}</p>
+                </div>
+              )}
+
+              {/* Redirects Details */}
+              {webCheckReport.redirects && !webCheckReport.redirects.error && webCheckReport.redirects.redirects?.length > 0 && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>↪️ Redirect Chain</h5>
+                  {webCheckReport.redirects.redirects.map((redirect, idx) => (
+                    <p key={idx} style={{ fontSize: '0.85rem' }}>
+                      {idx + 1}. {redirect.statusCode} → {redirect.url?.substring(0, 50)}...
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {/* Archives Details */}
+              {webCheckReport.archives && !webCheckReport.archives.error && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📚 Web Archive History</h5>
+                  <p><b>Total Snapshots:</b> {webCheckReport.archives.scanCount || webCheckReport.archives.length || 'Available'}</p>
+                  {webCheckReport.archives.firstScan && <p><b>First Snapshot:</b> {webCheckReport.archives.firstScan}</p>}
+                  {webCheckReport.archives.lastScan && <p><b>Last Snapshot:</b> {webCheckReport.archives.lastScan}</p>}
+                </div>
+              )}
+
+              {/* Carbon Footprint Details */}
+              {webCheckReport.carbon && !webCheckReport.carbon.error && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🌱 Carbon Footprint</h5>
+                  <p><b>Green Hosting:</b> <span style={{ color: webCheckReport.carbon.isGreen ? '#00d084' : '#ffb900' }}>{webCheckReport.carbon.isGreen ? 'Yes' : 'No'}</span></p>
+                  {webCheckReport.carbon.co2 && (
+                    <>
+                      <p><b>CO2 per visit:</b> {webCheckReport.carbon.co2.grid?.grams?.toFixed(2) || 'N/A'}g</p>
+                      <p><b>Cleaner than:</b> {webCheckReport.carbon.cleanerThan ? `${(webCheckReport.carbon.cleanerThan * 100).toFixed(0)}% of sites` : 'N/A'}</p>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* TXT Records */}
+              {webCheckReport['txt-records'] && !webCheckReport['txt-records'].error && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📝 TXT Records</h5>
+                  {(webCheckReport['txt-records'].txtRecords || webCheckReport['txt-records'].records || []).slice(0, 5).map((record, idx) => (
+                    <p key={idx} style={{ fontSize: '0.8rem', wordBreak: 'break-all' }}>
+                      {Array.isArray(record) ? record.join('').substring(0, 80) : String(record).substring(0, 80)}...
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {/* Headers */}
+              {webCheckReport.headers && !webCheckReport.headers.error && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📋 HTTP Headers</h5>
+                  {Object.entries(webCheckReport.headers).slice(0, 10).map(([key, val]) => (
+                    <p key={key} style={{ fontSize: '0.8rem' }}><b>{key}:</b> {String(val).substring(0, 60)}</p>
+                  ))}
                 </div>
               )}
             </div>
@@ -692,7 +1189,7 @@ const Hero = () => {
             <p><b>Tests Failed:</b> {observatoryData.tests_failed}/{observatoryData.tests_quantity}</p>
             <p>
               <b>View Full Report:</b>{" "}
-              <a href={`https://developer.mozilla.org/en-US/observatory/analyze?host=${encodeURIComponent(new URL(report.target).hostname)}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline', fontWeight: 'bold' }}>
+              <a href={`https://developer.mozilla.org/en-US/observatory/analyze?host=${report?.target ? encodeURIComponent(new URL(report.target).hostname) : ''}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline', fontWeight: 'bold' }}>
                 Mozilla Observatory Report ↗
               </a>
             </p>
@@ -703,7 +1200,7 @@ const Hero = () => {
             <p style={{ color: '#888' }}><i>Observatory scan data not available for this URL.</i></p>
             <p>
               <b>Manual Scan:</b>{" "}
-              <a href={`https://developer.mozilla.org/en-US/observatory/analyze?host=${encodeURIComponent(new URL(report.target).hostname)}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline', fontWeight: 'bold' }}>
+              <a href={`https://developer.mozilla.org/en-US/observatory/analyze?host=${report?.target ? encodeURIComponent(new URL(report.target).hostname) : ''}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline', fontWeight: 'bold' }}>
                 Run Mozilla Observatory Scan ↗
               </a>
             </p>

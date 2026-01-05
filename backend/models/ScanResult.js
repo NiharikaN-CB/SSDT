@@ -29,6 +29,11 @@ const scanResultSchema = new mongoose.Schema({
     type: Object,
     default: null
   },
+  // urlscan.io result
+  urlscanResult: {
+    type: Object,
+    default: null
+  },
   refinedReport: {
     type: String,
     default: null

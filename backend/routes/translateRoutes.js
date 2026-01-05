@@ -1,10 +1,10 @@
 const express = require('express');
-const gtranslate = require('google-translate-api-x');
+const { translateText } = require('../services/geminiService');
 const TranslationCache = require('../models/TranslationCache');
 
 const router = express.Router();
 
-console.log('✅ Translation service initialized (Free Google Translate API - No API key required)');
+console.log('✅ Translation service initialized (Gemini AI - powered by your API keys)');
 
 /**
  * POST /api/translate
@@ -59,39 +59,13 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Step 2: Translate uncached texts
+    // Step 2: Translate uncached texts using Gemini
     if (textsToTranslate.length > 0) {
-      console.log(`🌐 Translating ${textsToTranslate.length} texts via Free Google Translate API...`);
+      console.log(`🌐 Translating ${textsToTranslate.length} texts via Gemini AI...`);
 
       try {
-        const sourceLang = targetLang === 'en' ? 'ja' : 'en';
-        const translationPromises = [];
-
-        // Create translation promises for each text
-        for (let i = 0; i < textsToTranslate.length; i++) {
-          const text = textsToTranslate[i];
-
-          // Use an options object for clarity
-          const translateOptions = {
-            from: sourceLang,
-            to: targetLang,
-            // Recommended for higher quality translation for technical text:
-            forceBatch: false
-          };
-
-          // Translate using the free Google Translate API
-          const promise = gtranslate.translate(text, translateOptions)
-            .then(res => res.text)
-            .catch(err => {
-              console.error(`❌ Translation failed for text "${text.substring(0, 50)}...":`, err.message);
-              return text; // Return original text if translation fails
-            });
-
-          translationPromises.push(promise);
-        }
-
-        // Wait for all translations to complete
-        const translatedArray = await Promise.all(translationPromises);
+        // Call Gemini service for batch translation
+        const translatedArray = await translateText(textsToTranslate, targetLang);
 
         // Step 3: Save to cache and populate results
         for (let i = 0; i < translatedArray.length; i++) {

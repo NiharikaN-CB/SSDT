@@ -29,7 +29,7 @@ const runScan = async (scanType, url) => {
 
         const response = await axios.get(`${WEBCHECK_BASE_URL}/api/${scanType}`, {
             params: { url },
-            timeout: 60000 // 60 second timeout for heavy scans
+            timeout: 120000 // 120 second timeout for heavy scans
         });
 
         return response.data;

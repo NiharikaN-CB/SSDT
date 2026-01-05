@@ -6,6 +6,8 @@ const { scanFile, scanUrl, getAnalysis, getFileReport } = require('../services/v
 const { getPageSpeedReport } = require('../services/pagespeedService');
 const { scanHost } = require('../services/observatoryService');
 const { refineReport } = require('../services/geminiService');
+const { runZapScan } = require('../services/zapService');
+const { runUrlScan } = require('../services/urlscanService');
 const ScanResult = require('../models/ScanResult');
 const auth = require('../middleware/auth');
 const { combinedScanLimiter } = require('../middleware/rateLimiter');
@@ -300,7 +302,21 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
     let scan = await ScanResult.findOne({ analysisId: analysisId });
 
     if (scan) {
-      console.log('📝 Existing scan found, updating record...');
+      console.log('📝 Existing scan found, checking status...');
+
+      // 🚀 INSTANT CACHE: If scan completed recently (within 5 minutes), return cached results
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      if (scan.status === 'completed' && scan.updatedAt > fiveMinutesAgo && scan.refinedReport) {
+        console.log('⚡ Returning cached scan results (completed within last 5 minutes)');
+        return res.json({
+          success: true,
+          message: 'Returning cached results',
+          analysisId: analysisId,
+          url: url,
+          cached: true
+        });
+      }
+
       scan.userId = req.user.id; // Update owner to current requester
       scan.updatedAt = Date.now();
       // Only reset status if it was failed, otherwise keep the history
@@ -387,27 +403,29 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       }
     }
 
-    // STEP B: If VT is complete, check if we need PSI, Observatory and Gemini
-    if (scan.vtResult && (!scan.pagespeedResult || !scan.observatoryResult || !scan.refinedReport)) {
-      console.log('🔄 VT complete. Running PageSpeed, Observatory and Gemini analysis...');
+    // STEP B: If VT is complete, check if we need PSI, Observatory, ZAP, urlscan and Gemini
+    if (scan.vtResult && (!scan.pagespeedResult || !scan.observatoryResult || !scan.zapResult || !scan.urlscanResult || !scan.refinedReport)) {
+      console.log('🔄 VT complete. Running PageSpeed, Observatory, ZAP, urlscan and Gemini analysis...');
 
       try {
         // Update status to combining
         scan.status = 'combining';
         await scan.save();
 
-        // Run PageSpeed and Observatory in parallel for faster execution
-        console.log('🚀 Fetching PageSpeed and Observatory reports in parallel...');
+        // Run PageSpeed, Observatory, ZAP, and urlscan in parallel for faster execution
+        console.log('🚀 Fetching PageSpeed, Observatory, ZAP and urlscan reports in parallel...');
 
         // Extract hostname for Observatory
         const hostname = new URL(scan.target).hostname;
         console.log(`🔍 Scanning hostname: ${hostname}`);
 
-        // Execute both API calls in parallel using Promise.allSettled
+        // Execute all API calls in parallel using Promise.allSettled
         // This allows independent error handling for each service
-        const [psiResult, obsResult] = await Promise.allSettled([
+        const [psiResult, obsResult, zapResult, urlscanResult] = await Promise.allSettled([
           getPageSpeedReport(scan.target),
-          scanHost(hostname)
+          scanHost(hostname),
+          runZapScan(scan.target),
+          runUrlScan(scan.target)
         ]);
 
         // Handle PageSpeed result
@@ -436,10 +454,36 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           scan.observatoryResult = { error: obsResult.reason?.message || 'Observatory scan failed' };
         }
 
-        // Generate refined report with Gemini (now includes Observatory data)
-        console.log('🤖 Generating AI-refined report...');
+        // Handle ZAP result
+        let zapReport = null;
+        if (zapResult.status === 'fulfilled') {
+          zapReport = zapResult.value;
+          scan.zapResult = zapReport;
+          console.log('✅ ZAP scan completed:', zapReport?.riskCounts);
+        } else {
+          console.error('⚠️  ZAP scan failed:', zapResult.reason);
+          console.error('⚠️  Error details:', zapResult.reason?.message);
+          // Continue even if ZAP fails - it's not critical
+          scan.zapResult = { error: zapResult.reason?.message || 'ZAP scan failed or not available' };
+        }
+
+        // Handle urlscan result
+        let urlscanReport = null;
+        if (urlscanResult.status === 'fulfilled') {
+          urlscanReport = urlscanResult.value;
+          scan.urlscanResult = urlscanReport;
+          console.log('✅ urlscan completed:', urlscanReport?.verdicts?.overall?.malicious ? 'MALICIOUS' : 'Clean');
+        } else {
+          console.error('⚠️  urlscan failed:', urlscanResult.reason);
+          console.error('⚠️  Error details:', urlscanResult.reason?.message);
+          // Continue even if urlscan fails - it's not critical
+          scan.urlscanResult = { error: urlscanResult.reason?.message || 'urlscan failed or not available' };
+        }
+
+        // Generate refined report with Gemini (now includes Observatory, ZAP, and urlscan data)
+        console.log('🤖 Generating AI-refined report with all scan data...');
         try {
-          const aiReport = await refineReport(scan.vtResult, psiReport, observatoryReport, scan.target);
+          const aiReport = await refineReport(scan.vtResult, psiReport, observatoryReport, scan.target, zapReport, urlscanReport);
           scan.refinedReport = aiReport;
         } catch (geminiError) {
           console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
@@ -448,7 +492,7 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           scan.refinedReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
         }
 
-        // Mark as completed (even if Gemini failed, we have VT, PSI, and Observatory data)
+        // Mark as completed (even if Gemini failed, we have VT, PSI, Observatory, and ZAP data)
         scan.status = 'completed';
         await scan.save();
 
@@ -486,6 +530,21 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       tests_quantity: scan.observatoryResult.tests_quantity
     } : null;
 
+    const zapData = scan.zapResult && !scan.zapResult.error ? {
+      riskCounts: scan.zapResult.riskCounts,
+      alerts: scan.zapResult.alerts,
+      site: scan.zapResult.site
+    } : null;
+
+    const urlscanData = scan.urlscanResult && !scan.urlscanResult.error ? {
+      uuid: scan.urlscanResult.uuid,
+      verdicts: scan.urlscanResult.verdicts,
+      page: scan.urlscanResult.page,
+      stats: scan.urlscanResult.stats,
+      screenshot: scan.urlscanResult.screenshot,
+      reportUrl: scan.urlscanResult.reportUrl
+    } : null;
+
     // Always return all available data (progressive loading)
     return res.json({
       success: true,
@@ -496,15 +555,21 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       hasVtResult: !!scan.vtResult,
       hasPsiResult: !!scan.pagespeedResult,
       hasObservatoryResult: !!scan.observatoryResult,
+      hasZapResult: !!scan.zapResult && !scan.zapResult.error,
+      hasUrlscanResult: !!scan.urlscanResult && !scan.urlscanResult.error,
       hasRefinedReport: !!scan.refinedReport,
       // Actual data (null if not yet available)
       vtStats: vtStats,
       psiScores: psiScores,
       observatoryData: observatoryData,
+      zapData: zapData,
+      urlscanData: urlscanData,
       refinedReport: scan.refinedReport || null,
       vtResult: scan.vtResult || null,
       pagespeedResult: scan.pagespeedResult || null,
       observatoryResult: scan.observatoryResult || null,
+      zapResult: scan.zapResult || null,
+      urlscanResult: scan.urlscanResult || null,
       createdAt: scan.createdAt,
       updatedAt: scan.updatedAt
     });

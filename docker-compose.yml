@@ -1,16 +1,18 @@
-# Docker Compose for OWASP ZAP Scanner Only
+# Docker Compose for OWASP ZAP Scanner and WebCheck
 # Frontend and Backend run natively with Node.js (npm run dev / npm start)
 
 version: '3.8'
 
 services:
-  # OWASP ZAP Scanner - Used for security vulnerability scanning
+  # OWASP ZAP Scanner - Maximum Performance Configuration
   zap:
     image: zaproxy/zap-stable
-    container_name: zap-daemon
+    container_name: zap-scanner
     restart: always
     ports:
       - "8080:8080"
+    mem_limit: 4g
+    cpus: 2
     command:
       - "zap.sh"
       - "-daemon"
@@ -23,17 +25,29 @@ services:
       - "-config"
       - "api.addrs.addr.regex=true"
       - "-config"
-      - "api.key=ssdt-secure-zap-2025"
+      - "api.disablekey=true"
       - "-config"
-      - "api.disablekey=false"
+      - "spider.maxDepth=20"
+      - "-config"
+      - "spider.threadCount=10"
+      - "-config"
+      - "scanner.threadPerHost=10"
     networks:
       - app-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/JSON/core/view/version/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # WebCheck Scanner - Web security analysis tools
   webcheck:
     build: ./new
     container_name: ssdt-webcheck
     restart: always
+    env_file:
+      - ./backend/.env
     environment:
       - CHROME_PATH=/usr/bin/chromium
       - PORT=3002

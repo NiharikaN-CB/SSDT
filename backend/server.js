@@ -43,11 +43,20 @@ app.use('/auth', authLimiter, require('./routes/auth'));
 app.use('/api/vt', apiLimiter, scanLimiter, require('./routes/virustotalRoutes'));
 app.use('/api/pagespeed', apiLimiter, require('./routes/pageSpeedRoutes'));
 
+// 👇 REGISTER PROFILE ROUTE
+app.use('/api/profile', apiLimiter, require('./routes/profile'));
+
 // 👇 REGISTER ZAP ROUTE
 app.use('/api/zap', apiLimiter, scanLimiter, zapRoutes);
 
 // 👇 REGISTER WEBCHECK ROUTES
 app.use('/api/webcheck', apiLimiter, scanLimiter, webCheckRoutes);
+
+// 👇 REGISTER TRANSLATE ROUTES (Gemini-powered translation)
+app.use('/api/translate', apiLimiter, require('./routes/translateRoutes'));
+
+// 👇 REGISTER URLSCAN ROUTES
+app.use('/api/urlscan', apiLimiter, require('./routes/urlscanRoutes'));
 
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });

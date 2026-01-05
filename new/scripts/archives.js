@@ -26,14 +26,14 @@ const countPageChanges = (results) => {
 }
 
 const getAveragePageSize = (scans) => {
-    const totalSize = scans.map(scan => parseInt(scan[3], 10)).reduce((sum, size) => sum + size, 0);
-    return Math.round(totalSize / scans.length);
+  const totalSize = scans.map(scan => parseInt(scan[3], 10)).reduce((sum, size) => sum + size, 0);
+  return Math.round(totalSize / scans.length);
 };
 
 const getScanFrequency = (firstScan, lastScan, totalScans, changeCount) => {
   const formatToTwoDecimal = num => parseFloat(num.toFixed(2));
 
-  const dayFactor = (lastScan - firstScan) / (1000 * 60 * 60 * 24);  
+  const dayFactor = (lastScan - firstScan) / (1000 * 60 * 60 * 24);
   const daysBetweenScans = formatToTwoDecimal(dayFactor / totalScans);
   const daysBetweenChanges = formatToTwoDecimal(dayFactor / changeCount);
   const scansPerDay = formatToTwoDecimal((totalScans - 1) / dayFactor);
@@ -50,8 +50,9 @@ const wayBackHandler = async (url) => {
   const cdxUrl = `https://web.archive.org/cdx/search/cdx?url=${url}&output=json&fl=timestamp,statuscode,digest,length,offset`;
 
   try {
-    const { data } = await axios.get(cdxUrl);
-    
+    // Add 30 second timeout to prevent hanging
+    const { data } = await axios.get(cdxUrl, { timeout: 30000 });
+
     // Check there's data
     if (!data || !Array.isArray(data) || data.length <= 1) {
       return { skipped: 'Site has never before been archived via the Wayback Machine' };
