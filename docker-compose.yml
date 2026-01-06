@@ -4,11 +4,12 @@
 version: '3.8'
 
 services:
-  # OWASP ZAP Scanner - Maximum Performance Configuration
+  # OWASP ZAP Scanner - Production Configuration (v4.0)
+  # Handles 15K+ URLs, prevents video file loops, eliminates crashes
   zap:
     image: zaproxy/zap-stable
     container_name: zap-scanner
-    restart: always
+    restart: unless-stopped
     ports:
       - "8080:8080"
     mem_limit: 4g
@@ -27,11 +28,17 @@ services:
       - "-config"
       - "api.disablekey=true"
       - "-config"
+      - "database.responseBodyMaxSize=52428800"
+      - "-config"
       - "spider.maxDepth=20"
+      - "-config"
+      - "spider.maxDuration=120"
       - "-config"
       - "spider.threadCount=10"
       - "-config"
       - "scanner.threadPerHost=10"
+      - "-config"
+      - "scanner.hostPerScan=10"
     networks:
       - app-network
     healthcheck:
