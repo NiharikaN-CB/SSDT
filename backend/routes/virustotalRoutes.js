@@ -404,8 +404,9 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       }
     }
 
-    // STEP B: If VT is complete, check if we need PSI, Observatory, ZAP, urlscan and Gemini
-    if (scan.vtResult && (!scan.pagespeedResult || !scan.observatoryResult || !scan.zapResult || !scan.urlscanResult || !scan.refinedReport)) {
+    // STEP B: If VT is complete, check if we need PSI, Observatory, ZAP, urlscan, WebCheck and Gemini
+    // Only run if ANY of these are missing - don't re-run if they exist!
+    if (scan.vtResult && (!scan.pagespeedResult || !scan.observatoryResult || !scan.zapResult || !scan.urlscanResult || !scan.webCheckResult || !scan.refinedReport)) {
       console.log('🔄 VT complete. Running PageSpeed, Observatory, ZAP, urlscan and Gemini analysis...');
 
       try {
@@ -494,6 +495,13 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         let webCheckReport = null;
         if (webCheckResult.status === 'fulfilled') {
           webCheckReport = webCheckResult.value;
+
+          // 🔧 Truncate large fields to prevent MongoDB 16MB limit
+          if (webCheckReport.screenshot?.image && webCheckReport.screenshot.image.length > 500000) {
+            console.log('⚠️  Truncating large screenshot to prevent MongoDB limit');
+            webCheckReport.screenshot = { error: 'Screenshot too large, use urlscan fallback' };
+          }
+
           scan.webCheckResult = webCheckReport;
           console.log('✅ WebCheck completed:', Object.keys(webCheckReport).length, 'scans');
           await scan.save(); // 💾 Save immediately
@@ -636,6 +644,27 @@ router.get('/file-report/:hash', auth, async (req, res) => {
       error: 'Failed to retrieve file report',
       details: err.message
     });
+  }
+});
+
+// 8️⃣ Delete scan by analysis ID (Protected route) - for Stop button
+router.delete('/delete-scan/:id', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`🗑️ User ${req.user.id} requested to delete scan: ${id}`);
+
+    const result = await ScanResult.deleteOne({ analysisId: id, userId: req.user.id });
+
+    if (result.deletedCount > 0) {
+      console.log(`✅ Scan ${id} deleted successfully`);
+      res.json({ success: true, message: 'Scan deleted' });
+    } else {
+      console.log(`⚠️ Scan ${id} not found or not owned by user`);
+      res.status(404).json({ success: false, message: 'Scan not found' });
+    }
+  } catch (err) {
+    console.error('❌ Delete scan error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

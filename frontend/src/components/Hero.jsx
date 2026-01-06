@@ -68,6 +68,9 @@ const Hero = () => {
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
+  // 🛑 Abort flag for stopping polls (useRef so it persists across renders)
+  const scanAbortedRef = React.useRef(false);
+
   // Translate entire report when language changes
   useEffect(() => {
     if (report || zapReport) {
@@ -244,6 +247,9 @@ const Hero = () => {
     localStorage.removeItem(SCAN_STORAGE_KEY);
     localStorage.removeItem(SCAN_RESULTS_KEY);
 
+    // 🛑 Reset abort flag for new scan
+    scanAbortedRef.current = false;
+
     setLoading(true);
     setLoadingProgress(0);
     setLoadingStage('Initializing scan...');
@@ -313,6 +319,12 @@ const Hero = () => {
 
       // 🔄 No timeout limit - poll indefinitely until complete
       const pollAnalysis = async () => {
+        // 🛑 Check if scan was aborted before polling
+        if (scanAbortedRef.current) {
+          console.log('🛑 Poll aborted - user stopped scan');
+          return;
+        }
+
         try {
           // 👇 Use fetchWithRetry for polling with reconnection indicator
           const analysisRes = await fetchWithRetry(
@@ -409,6 +421,58 @@ const Hero = () => {
       setLoadingProgress(0);
       setIsReconnecting(false);
     }
+  };
+
+  // 🛑 Stop Scan - clears localStorage, resets UI, and deletes from MongoDB
+  const handleStopScan = async () => {
+    console.log('🛑 Stopping scan...');
+
+    // 🛑 Set abort flag to stop any running polls
+    scanAbortedRef.current = true;
+
+    // Get the analysis ID before clearing localStorage
+    const savedScan = localStorage.getItem(SCAN_STORAGE_KEY);
+    let analysisId = null;
+    if (savedScan) {
+      try {
+        const parsed = JSON.parse(savedScan);
+        analysisId = parsed.analysisId;
+      } catch (e) {
+        console.error('Error parsing saved scan:', e);
+      }
+    }
+
+    // Clear localStorage
+    localStorage.removeItem(SCAN_STORAGE_KEY);
+    localStorage.removeItem(SCAN_RESULTS_KEY);
+
+    // Reset UI state
+    setLoading(false);
+    setLoadingProgress(0);
+    setLoadingStage('');
+    setIsReconnecting(false);
+    setReconnectAttempt(0);
+    setReport(null); // Clear the report too
+
+    // Delete from MongoDB if we have an analysis ID
+    if (analysisId) {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_BASE}/api/vt/delete-scan/${analysisId}`, {
+          method: 'DELETE',
+          headers: { 'x-auth-token': token }
+        });
+        if (response.ok) {
+          console.log('✅ Scan deleted from MongoDB');
+        } else {
+          console.log('⚠️ Could not delete from MongoDB (scan may not exist)');
+        }
+      } catch (err) {
+        console.error('⚠️ Error deleting scan:', err.message);
+      }
+    }
+
+    console.log('✅ Scan stopped completely.');
   };
 
   // Note: renderPartialReport removed - replaced by progressive loading in main report layout
@@ -1506,6 +1570,25 @@ const Hero = () => {
                 {loading ? (isReconnecting ? `Reconnecting (${reconnectAttempt}/5)...` : 'Analyzing...') : 'Analyze URL'}
               </span>
             </button>
+            {loading && (
+              <button
+                type="button"
+                onClick={handleStopScan}
+                style={{
+                  background: '#e81123',
+                  border: 'none',
+                  color: 'white',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '5px',
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                🛑 Stop
+              </button>
+            )}
           </div>
         </form>
         {/* 🔄 Reconnection Indicator */}
