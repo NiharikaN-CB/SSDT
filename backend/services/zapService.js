@@ -1,6 +1,8 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs').promises;
+const ZapAlert = require('../models/ZapAlert');
+const gridfsService = require('./gridfsService');
 
 // Configuration
 const ZAP_SCANNER_SCRIPT = path.join(__dirname, '../scripts/zap_ai_scanner.py');
@@ -309,15 +311,8 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
       }
     });
 
-    // Update scan with final results
-    scan.status = 'completed';
-    scan.zapResult = {
-      ...scan.zapResult,
-      status: 'completed',
-      ...results.stats,
-      completedAt: new Date().toISOString()
-    };
-    await scan.save();
+    // Save scan completion using split storage to avoid 16MB limit
+    await saveScanCompletion(scanId, results);
 
     console.log(`✅ Scan completed and saved: ${scanId}`);
 
@@ -390,6 +385,168 @@ async function getZapScanStatus(scanId, userId) {
 }
 
 /**
+ * Save scan completion using split storage architecture
+ * Prevents MongoDB 16MB document limit errors
+ * @param {string} scanId - Scan ID
+ * @param {object} results - Scan results from Python script
+ */
+async function saveScanCompletion(scanId, results) {
+  const ScanResult = require('../models/ScanResult');
+  const axios = require('axios');
+
+  try {
+    const stats = results.stats || {};
+    const breakdown = stats.breakdown || {};
+
+    // 1. Update main scan document with summary only (< 1MB)
+    await ScanResult.findOneAndUpdate(
+      { analysisId: scanId },
+      {
+        $set: {
+          status: 'completed',
+          'zapResult.status': 'completed',
+          'zapResult.urlsFound': stats.urls || 0,
+          'zapResult.alertsTotal': stats.alerts || 0,
+          'zapResult.breakdown': breakdown,
+          'zapResult.completedAt': new Date().toISOString(),
+          'zapResult.progress': 100
+        }
+      }
+    );
+
+    // 2. Fetch and save individual alerts to separate collection
+    try {
+      const alertsResp = await axios.get(`${ZAP_API_URL}/JSON/core/view/alerts/`, {
+        timeout: 30000
+      });
+
+      const alerts = alertsResp.data.alerts || [];
+
+      if (alerts.length > 0) {
+        const alertDocs = alerts.map(alert => ({
+          scanId: scanId,
+          alertId: alert.pluginid || alert.id,
+          name: alert.alert || alert.name,
+          risk: alert.risk,
+          confidence: alert.confidence,
+          url: alert.url,
+          description: alert.description || alert.desc,
+          solution: alert.solution,
+          reference: alert.reference,
+          cweid: alert.cweid,
+          wascid: alert.wascid,
+          param: alert.param,
+          attack: alert.attack,
+          evidence: alert.evidence,
+          otherinfo: alert.otherinfo
+        }));
+
+        // Batch insert alerts (MongoDB handles this efficiently)
+        await ZapAlert.insertMany(alertDocs, { ordered: false });
+        console.log(`[ZAP] Saved ${alertDocs.length} alerts for scan ${scanId}`);
+      }
+    } catch (alertErr) {
+      console.error('[ZAP] Failed to save alerts:', alertErr.message);
+      // Don't fail the entire scan if alerts can't be saved
+    }
+
+    // 3. Save reports to GridFS (handles >16MB automatically)
+    const reportFiles = [];
+
+    try {
+      // Fetch HTML report
+      const htmlResp = await axios.get(`${ZAP_API_URL}/OTHER/core/other/htmlreport/`, {
+        timeout: 60000,
+        responseType: 'text'
+      });
+
+      if (htmlResp.data) {
+        const htmlFileId = await gridfsService.uploadFile(
+          htmlResp.data,
+          `${scanId}-report.html`,
+          { scanId, format: 'html', type: 'full-report' }
+        );
+        reportFiles.push({ format: 'html', fileId: htmlFileId });
+        console.log(`[ZAP] Saved HTML report to GridFS: ${htmlFileId}`);
+      }
+    } catch (htmlErr) {
+      console.error('[ZAP] Failed to save HTML report:', htmlErr.message);
+    }
+
+    try {
+      // Fetch JSON report
+      const jsonResp = await axios.get(`${ZAP_API_URL}/JSON/core/view/alerts/`, {
+        timeout: 60000
+      });
+
+      if (jsonResp.data) {
+        const jsonFileId = await gridfsService.uploadFile(
+          JSON.stringify(jsonResp.data, null, 2),
+          `${scanId}-report.json`,
+          { scanId, format: 'json', type: 'full-report' }
+        );
+        reportFiles.push({ format: 'json', fileId: jsonFileId });
+        console.log(`[ZAP] Saved JSON report to GridFS: ${jsonFileId}`);
+      }
+    } catch (jsonErr) {
+      console.error('[ZAP] Failed to save JSON report:', jsonErr.message);
+    }
+
+    try {
+      // Fetch XML report
+      const xmlResp = await axios.get(`${ZAP_API_URL}/OTHER/core/other/xmlreport/`, {
+        timeout: 60000,
+        responseType: 'text'
+      });
+
+      if (xmlResp.data) {
+        const xmlFileId = await gridfsService.uploadFile(
+          xmlResp.data,
+          `${scanId}-report.xml`,
+          { scanId, format: 'xml', type: 'full-report' }
+        );
+        reportFiles.push({ format: 'xml', fileId: xmlFileId });
+        console.log(`[ZAP] Saved XML report to GridFS: ${xmlFileId}`);
+      }
+    } catch (xmlErr) {
+      console.error('[ZAP] Failed to save XML report:', xmlErr.message);
+    }
+
+    // 4. Store GridFS file IDs in scan document (tiny, just references)
+    if (reportFiles.length > 0) {
+      await ScanResult.findOneAndUpdate(
+        { analysisId: scanId },
+        {
+          $set: {
+            'zapResult.reportFiles': reportFiles
+          }
+        }
+      );
+      console.log(`[ZAP] Stored ${reportFiles.length} report file references`);
+    }
+
+    return true;
+
+  } catch (error) {
+    console.error('[ZAP] Error saving scan completion:', error);
+
+    // Mark scan as failed
+    await ScanResult.findOneAndUpdate(
+      { analysisId: scanId },
+      {
+        $set: {
+          status: 'failed',
+          'zapResult.status': 'failed',
+          'zapResult.error': error.message
+        }
+      }
+    );
+
+    throw error;
+  }
+}
+
+/**
  * Setup ZAP environment (ensure Python script is deployed)
  */
 async function setupZapEnvironment() {
@@ -441,5 +598,6 @@ module.exports = {
   runZapScan,  // Backward-compatible wrapper for combined scan
   runZapScanWithDB,
   getZapScanStatus,
-  setupZapEnvironment
+  setupZapEnvironment,
+  saveScanCompletion  // For manual scan completion
 };
