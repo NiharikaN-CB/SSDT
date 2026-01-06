@@ -319,5 +319,6 @@ module.exports = {
   runZapScanWithUrlTracking,
   downloadDetailedReport,
   groupAlertsByUrl,
-  createDualVersionAlerts
+  createDualVersionAlerts,
+  runZapScan: runZapScanWithUrlTracking // Backward compatibility alias
 };

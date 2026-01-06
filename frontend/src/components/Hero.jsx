@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../contexts/TranslationContext';
+import ZapReportEnhanced from './ZapReportEnhanced';
 import '../styles/Hero.scss';
 import '../styles/HeroReport.scss';
 
@@ -953,35 +954,12 @@ const Hero = () => {
           );
         })()}
 
-        {/* ⚡ OWASP ZAP Detailed Results - Now uses backend data */}
+        {/* ⚡ OWASP ZAP Enhanced Results */}
         {backendZapData && backendZapData.alerts && (
-          <details style={{ marginBottom: '2rem' }}>
-            <summary style={{ cursor: 'pointer', fontWeight: 'bold', padding: '1rem', background: 'var(--card-bg)', borderRadius: '8px', border: '1px solid var(--accent)' }}>
-              ⚡ View OWASP ZAP Vulnerabilities ({backendZapData.alerts.length})
-            </summary>
-            {backendZapData.alerts.length === 0 ? (
-              <div style={{ padding: '1rem', color: '#00d084' }}>No active vulnerabilities found. Good job!</div>
-            ) : (
-              <table className="report-table" style={{ marginTop: '1rem' }}>
-                <thead>
-                  <tr>
-                    <th>Risk</th>
-                    <th>Alert</th>
-                    <th>Description</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {backendZapData.alerts.map((alert, idx) => (
-                    <tr key={idx} className={idx % 2 === 0 ? "even-row" : "odd-row"}>
-                      <td style={{ fontWeight: 'bold', color: getZapRiskColor(alert.risk) }}>{alert.risk}</td>
-                      <td>{alert.alert}</td>
-                      <td style={{ fontSize: '0.9em' }}>{alert.description ? alert.description.substring(0, 150) + "..." : "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </details>
+          <ZapReportEnhanced
+            zapData={backendZapData}
+            scanId={report?.scanId || report?.analysisId}
+          />
         )}
 
         {/* 🔍 WebCheck Detailed Results */}

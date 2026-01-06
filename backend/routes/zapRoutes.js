@@ -454,4 +454,18 @@ router.get('/scans/:scanId/alerts/stats', auth, async (req, res) => {
   }
 });
 
+// GET /api/zap/detailed-report/:scanId
+// Download detailed vulnerability report with all URLs (for ZapReportEnhanced component)
+router.get('/detailed-report/:scanId', auth, async (req, res) => {
+  try {
+    const { downloadDetailedReport } = require('../services/zapService');
+    await downloadDetailedReport(req, res);
+  } catch (error) {
+    console.error('Download error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to download detailed report' });
+    }
+  }
+});
+
 module.exports = router;

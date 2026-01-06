@@ -424,7 +424,7 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         const [psiResult, obsResult, zapResult, urlscanResult] = await Promise.allSettled([
           getPageSpeedReport(scan.target),
           scanHost(hostname),
-          runZapScan(scan.target),
+          runZapScan({ target: scan.target, scanId: scan.analysisId }),
           runUrlScan(scan.target)
         ]);
 

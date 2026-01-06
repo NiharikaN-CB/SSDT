@@ -5,6 +5,8 @@
 import React, { useState } from 'react';
 import '../styles/ZapReportEnhanced.scss';
 
+const API_BASE = 'http://localhost:3001';
+
 const ZapReportEnhanced = ({ zapData, scanId }) => {
     const [expandedAlerts, setExpandedAlerts] = useState(new Set());
     const [downloadingDetailed, setDownloadingDetailed] = useState(false);
@@ -26,7 +28,7 @@ const ZapReportEnhanced = ({ zapData, scanId }) => {
     const downloadDetailedReport = async () => {
         setDownloadingDetailed(true);
         try {
-            const response = await fetch(`http://localhost:3001/api/zap/detailed-report/${scanId}`, {
+            const response = await fetch(`${API_BASE}/api/zap/detailed-report/${scanId}`, {
                 headers: {
                     'x-auth-token': localStorage.getItem('token')
                 }
