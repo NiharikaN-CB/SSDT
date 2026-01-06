@@ -221,18 +221,18 @@ async function runZapScanWithUrlTracking(options) {
 
     // Step 7: Store detailed report in GridFS
     const htmlBuffer = Buffer.from(htmlReportResponse.data);
-    const htmlFileId = await gridfsService.uploadBuffer(
+    const htmlFileId = await gridfsService.uploadFile(
       htmlBuffer,
       `zap_report_${scanId}.html`,
-      'text/html'
+      { scanId, contentType: 'text/html' }
     );
 
     // Store detailed alerts JSON in GridFS (for future download)
     const detailedAlertsBuffer = Buffer.from(JSON.stringify(detailedAlerts, null, 2), 'utf-8');
-    const detailedAlertsFileId = await gridfsService.uploadBuffer(
+    const detailedAlertsFileId = await gridfsService.uploadFile(
       detailedAlertsBuffer,
       `zap_detailed_alerts_${scanId}.json`,
-      'application/json'
+      { scanId, contentType: 'application/json' }
     );
 
     console.log(`✅ HTML report stored in GridFS: ${htmlFileId}`);
@@ -248,13 +248,13 @@ async function runZapScanWithUrlTracking(options) {
       totalOccurrences: summaryAlerts.reduce((sum, a) => sum + a.totalOccurrences, 0),
       reportFiles: [
         {
-          fileId: htmlFileId,
+          fileId: htmlFileId.toString(), // GridFS returns ObjectId, convert to string
           filename: `zap_report_${scanId}.html`,
           contentType: 'text/html',
           size: htmlBuffer.length
         },
         {
-          fileId: detailedAlertsFileId,
+          fileId: detailedAlertsFileId.toString(), // GridFS returns ObjectId, convert to string
           filename: `zap_detailed_alerts_${scanId}.json`,
           contentType: 'application/json',
           size: detailedAlertsBuffer.length,
@@ -282,10 +282,18 @@ async function downloadDetailedReport(req, res) {
   try {
     const { scanId } = req.params;
 
-    // Find scan result
-    const scanResult = await ScanResult.findOne({ scanId });
+    // Find scan result by analysisId (scanId in the route)
+    const scanResult = await ScanResult.findOne({ analysisId: scanId });
     if (!scanResult) {
       return res.status(404).json({ error: 'Scan not found' });
+    }
+
+    // Check if zapResult exists
+    if (!scanResult.zapResult || !scanResult.zapResult.reportFiles) {
+      return res.status(404).json({
+        error: 'ZAP report not available for this scan',
+        hint: 'This scan may not have completed ZAP scanning yet'
+      });
     }
 
     // Find detailed alerts file
@@ -294,20 +302,32 @@ async function downloadDetailedReport(req, res) {
     );
 
     if (!detailedFile) {
-      return res.status(404).json({ error: 'Detailed report not found' });
+      return res.status(404).json({
+        error: 'Detailed report not found',
+        hint: 'The detailed alert report may not have been generated for this scan'
+      });
     }
 
-    // Stream from GridFS
-    const stream = await gridfsService.downloadStream(detailedFile.fileId);
+    // Stream from GridFS using correct method name
+    const stream = gridfsService.downloadFileStream(detailedFile.fileId);
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="${detailedFile.filename}"`);
+
+    stream.on('error', (streamError) => {
+      console.error('GridFS stream error:', streamError);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to stream report file' });
+      }
+    });
 
     stream.pipe(res);
 
   } catch (error) {
     console.error('Download error:', error);
-    res.status(500).json({ error: 'Failed to download report' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to download report' });
+    }
   }
 }
 
