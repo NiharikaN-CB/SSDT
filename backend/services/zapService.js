@@ -1,611 +1,323 @@
-const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs').promises;
+// Enhanced ZAP Service with URL-Specific Vulnerability Tracking
+// File: backend/services/zapService.js
+
+const axios = require('axios');
+const { parseZapReport } = require('../utils/zapUtils');
+const ScanResult = require('../models/ScanResult');
 const ZapAlert = require('../models/ZapAlert');
 const gridfsService = require('./gridfsService');
 
-// Configuration
-const ZAP_SCANNER_SCRIPT = path.join(__dirname, '../scripts/zap_ai_scanner.py');
-const ZAP_API_URL = process.env.ZAP_API_URL || 'http://127.0.0.1:8080';
+// ============================================================================
+// URL-SPECIFIC VULNERABILITY TRACKING
+// ============================================================================
 
 /**
- * Enhanced ZAP Service - Maximum Performance Scanner Integration
- * Uses the zap_ai_scanner.py Python script for comprehensive scanning
+ * Structure for URL-specific alerts:
+ * {
+ *   "Missing Anti-clickjacking Header": {
+ *     risk: "Medium",
+ *     description: "...",
+ *     solution: "...",
+ *     occurrences: [
+ *       { url: "https://example.com/page1", instances: 1 },
+ *       { url: "https://example.com/page2", instances: 1 }
+ *     ],
+ *     totalCount: 2
+ *   }
+ * }
  */
 
-/**
- * Check if ZAP container is running and accessible
- */
-async function checkZapHealth() {
-  try {
-    const axios = require('axios');
-    const response = await axios.get(`${ZAP_API_URL}/JSON/core/view/version/`, {
-      timeout: 5000
-    });
-    return {
-      healthy: true,
-      version: response.data.version
-    };
-  } catch (error) {
-    console.error('❌ ZAP health check failed:', error.message);
-    return {
-      healthy: false,
-      error: error.message
-    };
-  }
-}
+function groupAlertsByUrl(alerts) {
+  const grouped = {};
 
-/**
- * Run comprehensive ZAP scan using the Python automation script
- * @param {string} targetUrl - URL to scan
- * @param {object} options - Scan options
- * @param {boolean} options.quickMode - Use quick scan mode (default: false)
- * @param {function} options.onProgress - Progress callback function
- * @returns {Promise<object>} - Scan results
- */
-async function runComprehensiveZapScan(targetUrl, options = {}) {
-  const { quickMode = false, onProgress } = options;
+  alerts.forEach(alert => {
+    const key = alert.alert; // Use alert name as key
 
-  console.log(`🔍 Starting comprehensive ZAP scan for: ${targetUrl}`);
-  console.log(`   Mode: ${quickMode ? 'Quick' : 'Full'}`);
-
-  // Validate Python script exists
-  try {
-    await fs.access(ZAP_SCANNER_SCRIPT);
-  } catch (error) {
-    throw new Error(`ZAP scanner script not found at ${ZAP_SCANNER_SCRIPT}`);
-  }
-
-  return new Promise((resolve, reject) => {
-    const args = [ZAP_SCANNER_SCRIPT, targetUrl, '--zap-api', ZAP_API_URL];
-
-    if (quickMode) {
-      args.push('--quick');
+    if (!grouped[key]) {
+      grouped[key] = {
+        alert: alert.alert,
+        risk: alert.risk,
+        confidence: alert.confidence,
+        description: alert.description,
+        solution: alert.solution,
+        reference: alert.reference,
+        cweid: alert.cweid,
+        wascid: alert.wascid,
+        occurrences: [],
+        totalCount: 0
+      };
     }
 
-    console.log(`🚀 Executing: python ${args.join(' ')}`);
-
-    // Use 'python' on Windows, 'python3' on Linux/Mac
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-    const pythonProcess = spawn(pythonCmd, args, {
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-
-    let stdout = '';
-    let stderr = '';
-    let scanStats = {
-      phase: 'starting',
-      urlsFound: 0,
-      alerts: 0,
-      progress: 0
-    };
-
-    // Parse stdout for progress updates
-    pythonProcess.stdout.on('data', (data) => {
-      const output = data.toString();
-      stdout += output;
-
-      // Parse progress logs
-      const lines = output.split('\n');
-      lines.forEach(line => {
-        console.log(`[ZAP] ${line}`);
-
-        // Extract phase information
-        if (line.includes('PHASE 1: TRADITIONAL SPIDER')) {
-          scanStats.phase = 'spider';
-          if (onProgress) onProgress({ ...scanStats });
-        } else if (line.includes('PHASE 2: AJAX SPIDER')) {
-          scanStats.phase = 'ajax-spider';
-          if (onProgress) onProgress({ ...scanStats });
-        } else if (line.includes('PHASE 3: PASSIVE SCAN')) {
-          scanStats.phase = 'passive-scan';
-          if (onProgress) onProgress({ ...scanStats });
-        } else if (line.includes('PHASE 4: ACTIVE SCAN')) {
-          scanStats.phase = 'active-scan';
-          if (onProgress) onProgress({ ...scanStats });
-        } else if (line.includes('PHASE 5: GENERATING REPORTS')) {
-          scanStats.phase = 'generating-reports';
-          if (onProgress) onProgress({ ...scanStats });
-        }
-
-        // Extract URL count
-        const urlMatch = line.match(/Total URLs discovered: (\d+)/);
-        if (urlMatch) {
-          scanStats.urlsFound = parseInt(urlMatch[1]);
-          if (onProgress) onProgress({ ...scanStats });
-        }
-
-        // Extract alert count
-        const alertMatch = line.match(/Total alerts: (\d+)/);
-        if (alertMatch) {
-          scanStats.alerts = parseInt(alertMatch[1]);
-          if (onProgress) onProgress({ ...scanStats });
-        }
-
-        // Extract progress percentage
-        const progressMatch = line.match(/(\d+)%/);
-        if (progressMatch) {
-          scanStats.progress = parseInt(progressMatch[1]);
-          if (onProgress) onProgress({ ...scanStats });
-        }
+    // Add URL-specific occurrence
+    if (alert.instances && alert.instances.length > 0) {
+      alert.instances.forEach(instance => {
+        grouped[key].occurrences.push({
+          url: instance.uri || alert.url,
+          method: instance.method,
+          param: instance.param,
+          attack: instance.attack,
+          evidence: instance.evidence
+        });
+        grouped[key].totalCount++;
       });
-    });
-
-    pythonProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
-      console.error(`[ZAP Error] ${data}`);
-    });
-
-    pythonProcess.on('close', (code) => {
-      if (code === 0) {
-        console.log('✅ ZAP scan completed successfully');
-
-        // Parse final JSON output from last line of stdout
-        const lines = stdout.trim().split('\n');
-        let results = null;
-
-        // Find the last JSON object in the output
-        for (let i = lines.length - 1; i >= 0; i--) {
-          const line = lines[i].trim();
-          if (line.startsWith('{')) {
-            try {
-              results = JSON.parse(line);
-              break;
-            } catch (e) {
-              // Not valid JSON, continue searching
-            }
-          }
-        }
-
-        if (results) {
-          resolve({
-            success: true,
-            target: targetUrl,
-            stats: results,
-            scanMode: quickMode ? 'quick' : 'full',
-            timestamp: new Date().toISOString()
-          });
-        } else {
-          // Fallback: parse from logs
-          resolve({
-            success: true,
-            target: targetUrl,
-            stats: scanStats,
-            scanMode: quickMode ? 'quick' : 'full',
-            timestamp: new Date().toISOString(),
-            note: 'Results parsed from logs (JSON output not found)'
-          });
-        }
-      } else {
-        console.error(`❌ ZAP scan failed with exit code ${code}`);
-        reject(new Error(`ZAP scan failed: ${stderr || 'Unknown error'}`));
-      }
-    });
-
-    pythonProcess.on('error', (error) => {
-      console.error('❌ Failed to start ZAP scanner:', error);
-      reject(new Error(`Failed to start ZAP scanner: ${error.message}`));
-    });
+    } else {
+      // Fallback: alert without detailed instances
+      grouped[key].occurrences.push({
+        url: alert.url,
+        instances: 1
+      });
+      grouped[key].totalCount++;
+    }
   });
+
+  return Object.values(grouped);
 }
 
 /**
- * Backward-compatible wrapper for runZapScan
- * Used by combined scan in virustotalRoutes.js
- * Returns format: { site, riskCounts, alerts }
+ * Create TWO versions of the alert data:
+ * 1. Summary version (for MongoDB document) - compact, under 16MB
+ * 2. Detailed version (for GridFS) - complete with all URLs
  */
-async function runZapScan(targetUrl) {
-  console.log(`🔍 [ZAP] Starting scan for: ${targetUrl}`);
+function createDualVersionAlerts(alerts) {
+  const grouped = groupAlertsByUrl(alerts);
+
+  // SUMMARY VERSION: Top 5 URLs per alert type
+  const summaryAlerts = grouped.map(alert => ({
+    alert: alert.alert,
+    risk: alert.risk,
+    confidence: alert.confidence,
+    description: alert.description ? alert.description.substring(0, 200) + '...' : '',
+    solution: alert.solution ? alert.solution.substring(0, 150) + '...' : '',
+    totalOccurrences: alert.totalCount,
+    sampleUrls: alert.occurrences.slice(0, 5).map(occ => occ.url), // Top 5 URLs only
+    hasMoreUrls: alert.occurrences.length > 5
+  }));
+
+  // DETAILED VERSION: All URLs, all data
+  const detailedAlerts = grouped.map(alert => ({
+    alert: alert.alert,
+    risk: alert.risk,
+    confidence: alert.confidence,
+    description: alert.description,
+    solution: alert.solution,
+    reference: alert.reference,
+    cweid: alert.cweid,
+    wascid: alert.wascid,
+    totalOccurrences: alert.totalCount,
+    occurrences: alert.occurrences // ALL URLs with full details
+  }));
+
+  return { summaryAlerts, detailedAlerts };
+}
+
+// ============================================================================
+// ENHANCED ZAP SCAN FUNCTION
+// ============================================================================
+
+async function runZapScanWithUrlTracking(options) {
+  const {
+    target,
+    scanId,
+    maxUrls = 1000,
+    timeout = 600000, // 10 minutes
+    onProgress = null
+  } = options;
+
+  console.log(`🔍 Starting ZAP scan with URL tracking: ${target}`);
 
   try {
-    // Check ZAP health first
-    const health = await checkZapHealth();
-    if (!health.healthy) {
-      throw new Error('ZAP Container is not reachable or API Key is invalid.');
-    }
+    // Step 1: Spider the target
+    if (onProgress) onProgress({ stage: 'spider', progress: 0 });
 
-    // Use the comprehensive Python scanner with FULL mode for industry-level scanning
-    const result = await runComprehensiveZapScan(targetUrl, { quickMode: false });
+    const spiderResponse = await axios.get('http://localhost:8080/JSON/spider/action/scan/', {
+      params: {
+        url: target,
+        maxChildren: maxUrls,
+        recurse: true,
+        contextName: '',
+        subtreeOnly: false
+      }
+    });
 
-    // Transform result to expected format for combined scan
-    const stats = result.stats || {};
-    const breakdown = stats.breakdown || {};
+    const spiderScanId = spiderResponse.data.scan;
+    console.log(`🕷️ Spider scan started: ${spiderScanId}`);
 
-    // Build alerts array from the scan results
-    // The Python script returns breakdown with risk counts
-    const riskCounts = {
-      High: breakdown.High || 0,
-      Medium: breakdown.Medium || 0,
-      Low: breakdown.Low || 0,
-      Informational: breakdown.Informational || 0
-    };
+    // Wait for spider to complete
+    let spiderProgress = 0;
+    while (spiderProgress < 100) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Fetch actual alerts from ZAP API for detailed info
-    let alerts = [];
-    try {
-      const axios = require('axios');
-      const alertsResp = await axios.get(`${ZAP_API_URL}/JSON/core/view/alerts/`, {
-        params: { baseurl: targetUrl },
-        timeout: 30000
+      const statusResponse = await axios.get('http://localhost:8080/JSON/spider/view/status/', {
+        params: { scanId: spiderScanId }
       });
-      alerts = (alertsResp.data.alerts || []).map(a => ({
-        alert: a.alert,
-        risk: a.risk,
-        description: a.description,
-        solution: a.solution
-      }));
-    } catch (alertErr) {
-      console.warn('⚠️  Could not fetch detailed alerts:', alertErr.message);
-      // Return empty alerts but keep risk counts from scan
+
+      spiderProgress = parseInt(statusResponse.data.status);
+      if (onProgress) onProgress({ stage: 'spider', progress: spiderProgress });
+      console.log(`🕷️ Spider progress: ${spiderProgress}%`);
     }
 
-    console.log(`✅ [ZAP] Scan completed: ${stats.urls || 0} URLs, ${stats.alerts || 0} alerts`);
+    // Step 2: Active scan
+    if (onProgress) onProgress({ stage: 'scan', progress: 0 });
 
+    const scanResponse = await axios.get('http://localhost:8080/JSON/ascan/action/scan/', {
+      params: {
+        url: target,
+        recurse: true,
+        inScopeOnly: false,
+        scanPolicyName: '',
+        method: '',
+        postData: ''
+      }
+    });
+
+    const activeScanId = scanResponse.data.scan;
+    console.log(`⚡ Active scan started: ${activeScanId}`);
+
+    // Wait for active scan to complete
+    let scanProgress = 0;
+    while (scanProgress < 100) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      const statusResponse = await axios.get('http://localhost:8080/JSON/ascan/view/status/', {
+        params: { scanId: activeScanId }
+      });
+
+      scanProgress = parseInt(statusResponse.data.status);
+      if (onProgress) onProgress({ stage: 'scan', progress: scanProgress });
+      console.log(`⚡ Scan progress: ${scanProgress}%`);
+    }
+
+    // Step 3: Retrieve alerts with URL details
+    console.log('📊 Retrieving alerts...');
+
+    const alertsResponse = await axios.get('http://localhost:8080/JSON/alert/view/alerts/', {
+      params: {
+        baseurl: target,
+        start: 0,
+        count: 10000 // Get all alerts
+      }
+    });
+
+    const rawAlerts = alertsResponse.data.alerts || [];
+    console.log(`📊 Retrieved ${rawAlerts.length} raw alerts`);
+
+    // Step 4: Generate HTML report (for GridFS storage)
+    const htmlReportResponse = await axios.get('http://localhost:8080/OTHER/core/other/htmlreport/', {
+      responseType: 'arraybuffer'
+    });
+
+    // Step 5: Process alerts into dual versions
+    const { summaryAlerts, detailedAlerts } = createDualVersionAlerts(rawAlerts);
+
+    console.log(`📊 Grouped into ${summaryAlerts.length} unique alert types`);
+    console.log(`📊 Summary version size: ${JSON.stringify(summaryAlerts).length} bytes`);
+    console.log(`📊 Detailed version size: ${JSON.stringify(detailedAlerts).length} bytes`);
+
+    // Step 6: Calculate risk counts
+    const riskCounts = summaryAlerts.reduce((acc, alert) => {
+      acc[alert.risk] = (acc[alert.risk] || 0) + 1;
+      return acc;
+    }, { High: 0, Medium: 0, Low: 0, Informational: 0 });
+
+    // Step 7: Store detailed report in GridFS
+    const htmlBuffer = Buffer.from(htmlReportResponse.data);
+    const htmlFileId = await gridfsService.uploadBuffer(
+      htmlBuffer,
+      `zap_report_${scanId}.html`,
+      'text/html'
+    );
+
+    // Store detailed alerts JSON in GridFS (for future download)
+    const detailedAlertsBuffer = Buffer.from(JSON.stringify(detailedAlerts, null, 2), 'utf-8');
+    const detailedAlertsFileId = await gridfsService.uploadBuffer(
+      detailedAlertsBuffer,
+      `zap_detailed_alerts_${scanId}.json`,
+      'application/json'
+    );
+
+    console.log(`✅ HTML report stored in GridFS: ${htmlFileId}`);
+    console.log(`✅ Detailed alerts stored in GridFS: ${detailedAlertsFileId}`);
+
+    // Step 8: Return data for MongoDB (compact version)
     return {
-      site: targetUrl,
+      scanId,
+      target,
+      alerts: summaryAlerts, // COMPACT VERSION for MongoDB
       riskCounts,
-      alerts
-    };
-
-  } catch (error) {
-    console.error('[ZAP] Service Error:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Run ZAP scan and store results in database
- * @param {string} targetUrl - URL to scan
- * @param {string} userId - User ID from authentication
- * @param {object} options - Scan options
- * @returns {Promise<object>} - Scan result with database ID
- */
-async function runZapScanWithDB(targetUrl, userId, options = {}) {
-  const ScanResult = require('../models/ScanResult');
-
-  // Use provided scanId or generate new one (moved outside try block for scope)
-  let scanId = options.scanId || `zap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-  try {
-    // Create initial scan record
-    const scan = new ScanResult({
-      target: targetUrl,
-      analysisId: scanId,
-      status: 'queued',
-      userId: userId,
-      zapResult: {
-        status: 'queued',
-        startedAt: new Date().toISOString()
-      }
-    });
-
-    await scan.save();
-    console.log(`📝 Created scan record: ${scanId}`);
-
-    // Update scan status to 'pending'
-    scan.status = 'pending';
-    scan.zapResult.status = 'scanning';
-    await scan.save();
-
-    // Run the scan with progress tracking
-    const results = await runComprehensiveZapScan(targetUrl, {
-      ...options,
-      onProgress: async (stats) => {
-        // Update database with progress
-        try {
-          const currentScan = await ScanResult.findOne({ analysisId: scanId });
-          if (currentScan) {
-            currentScan.zapResult = {
-              ...currentScan.zapResult,
-              status: 'scanning',
-              phase: stats.phase,
-              urlsFound: stats.urlsFound,
-              alerts: stats.alerts,
-              progress: stats.progress,
-              lastUpdate: new Date().toISOString()
-            };
-            await currentScan.save();
-          }
-        } catch (updateError) {
-          console.error('⚠️  Failed to update progress:', updateError.message);
-        }
-      }
-    });
-
-    // Transform results to match expected format for saveScanCompletion
-    const transformedResults = {
-      stats: results.stats,
-      target: targetUrl,
-      scanId: scanId
-    };
-
-    // Save scan completion using split storage to avoid 16MB limit
-    await saveScanCompletion(scanId, transformedResults);
-
-    console.log(`✅ Scan completed and saved: ${scanId}`);
-
-    return {
-      success: true,
-      scanId: scanId,
-      analysisId: scanId,
-      results: results,
-      _id: scan._id
-    };
-
-  } catch (error) {
-    console.error('❌ ZAP scan with DB failed:', error);
-
-    // Update scan status to failed if it exists (scanId is now in scope)
-    if (scanId) {
-      try {
-        const ScanResult = require('../models/ScanResult');
-        await ScanResult.updateOne(
-          { analysisId: scanId },
-          {
-            status: 'failed',
-            'zapResult.status': 'failed',
-            'zapResult.error': error.message,
-            'zapResult.failedAt': new Date().toISOString()
-          }
-        );
-      } catch (updateError) {
-        console.error('⚠️  Failed to update scan status:', updateError.message);
-      }
-    }
-
-    throw error;
-  }
-}
-
-/**
- * Get ZAP scan status and results from database
- * @param {string} scanId - Scan ID (analysisId)
- * @param {string} userId - User ID for authorization
- * @returns {Promise<object>} - Scan status and results
- */
-async function getZapScanStatus(scanId, userId) {
-  const ScanResult = require('../models/ScanResult');
-
-  try {
-    const scan = await ScanResult.findOne({
-      analysisId: scanId,
-      userId: userId
-    });
-
-    if (!scan) {
-      throw new Error('Scan not found or access denied');
-    }
-
-    return {
-      success: true,
-      scanId: scanId,
-      status: scan.status,
-      target: scan.target,
-      zapResult: scan.zapResult || {},
-      createdAt: scan.createdAt,
-      updatedAt: scan.updatedAt
-    };
-
-  } catch (error) {
-    console.error('❌ Failed to get scan status:', error);
-    throw error;
-  }
-}
-
-/**
- * Save scan completion using split storage architecture
- * Prevents MongoDB 16MB document limit errors
- * @param {string} scanId - Scan ID
- * @param {object} results - Scan results from Python script
- */
-async function saveScanCompletion(scanId, results) {
-  const ScanResult = require('../models/ScanResult');
-  const axios = require('axios');
-
-  try {
-    const stats = results.stats || {};
-    const breakdown = stats.breakdown || {};
-
-    // 1. Update main scan document with summary only (< 1MB)
-    await ScanResult.findOneAndUpdate(
-      { analysisId: scanId },
-      {
-        $set: {
-          status: 'completed',
-          'zapResult.status': 'completed',
-          'zapResult.urlsFound': stats.urls || 0,
-          'zapResult.alertsTotal': stats.alerts || 0,
-          'zapResult.breakdown': breakdown,
-          'zapResult.completedAt': new Date().toISOString(),
-          'zapResult.progress': 100
-        }
-      }
-    );
-
-    // 2. Fetch and save individual alerts to separate collection
-    try {
-      const alertsResp = await axios.get(`${ZAP_API_URL}/JSON/core/view/alerts/`, {
-        timeout: 30000
-      });
-
-      const alerts = alertsResp.data.alerts || [];
-
-      if (alerts.length > 0) {
-        const alertDocs = alerts.map(alert => ({
-          scanId: scanId,
-          alertId: alert.pluginid || alert.id,
-          name: alert.alert || alert.name,
-          risk: alert.risk,
-          confidence: alert.confidence,
-          url: alert.url,
-          description: alert.description || alert.desc,
-          solution: alert.solution,
-          reference: alert.reference,
-          cweid: alert.cweid,
-          wascid: alert.wascid,
-          param: alert.param,
-          attack: alert.attack,
-          evidence: alert.evidence,
-          otherinfo: alert.otherinfo
-        }));
-
-        // Batch insert alerts (MongoDB handles this efficiently)
-        await ZapAlert.insertMany(alertDocs, { ordered: false });
-        console.log(`[ZAP] Saved ${alertDocs.length} alerts for scan ${scanId}`);
-      }
-    } catch (alertErr) {
-      console.error('[ZAP] Failed to save alerts:', alertErr.message);
-      // Don't fail the entire scan if alerts can't be saved
-    }
-
-    // 3. Save reports to GridFS (handles >16MB automatically)
-    const reportFiles = [];
-
-    try {
-      // Fetch HTML report
-      const htmlResp = await axios.get(`${ZAP_API_URL}/OTHER/core/other/htmlreport/`, {
-        timeout: 60000,
-        responseType: 'text'
-      });
-
-      if (htmlResp.data) {
-        const htmlFileId = await gridfsService.uploadFile(
-          htmlResp.data,
-          `${scanId}-report.html`,
-          { scanId, format: 'html', type: 'full-report' }
-        );
-        reportFiles.push({ format: 'html', fileId: htmlFileId });
-        console.log(`[ZAP] Saved HTML report to GridFS: ${htmlFileId}`);
-      }
-    } catch (htmlErr) {
-      console.error('[ZAP] Failed to save HTML report:', htmlErr.message);
-    }
-
-    try {
-      // Fetch JSON report
-      const jsonResp = await axios.get(`${ZAP_API_URL}/JSON/core/view/alerts/`, {
-        timeout: 60000
-      });
-
-      if (jsonResp.data) {
-        const jsonFileId = await gridfsService.uploadFile(
-          JSON.stringify(jsonResp.data, null, 2),
-          `${scanId}-report.json`,
-          { scanId, format: 'json', type: 'full-report' }
-        );
-        reportFiles.push({ format: 'json', fileId: jsonFileId });
-        console.log(`[ZAP] Saved JSON report to GridFS: ${jsonFileId}`);
-      }
-    } catch (jsonErr) {
-      console.error('[ZAP] Failed to save JSON report:', jsonErr.message);
-    }
-
-    try {
-      // Fetch XML report
-      const xmlResp = await axios.get(`${ZAP_API_URL}/OTHER/core/other/xmlreport/`, {
-        timeout: 60000,
-        responseType: 'text'
-      });
-
-      if (xmlResp.data) {
-        const xmlFileId = await gridfsService.uploadFile(
-          xmlResp.data,
-          `${scanId}-report.xml`,
-          { scanId, format: 'xml', type: 'full-report' }
-        );
-        reportFiles.push({ format: 'xml', fileId: xmlFileId });
-        console.log(`[ZAP] Saved XML report to GridFS: ${xmlFileId}`);
-      }
-    } catch (xmlErr) {
-      console.error('[ZAP] Failed to save XML report:', xmlErr.message);
-    }
-
-    // 4. Store GridFS file IDs in scan document (tiny, just references)
-    if (reportFiles.length > 0) {
-      await ScanResult.findOneAndUpdate(
-        { analysisId: scanId },
+      totalAlerts: summaryAlerts.length,
+      totalOccurrences: summaryAlerts.reduce((sum, a) => sum + a.totalOccurrences, 0),
+      reportFiles: [
         {
-          $set: {
-            'zapResult.reportFiles': reportFiles
-          }
+          fileId: htmlFileId,
+          filename: `zap_report_${scanId}.html`,
+          contentType: 'text/html',
+          size: htmlBuffer.length
+        },
+        {
+          fileId: detailedAlertsFileId,
+          filename: `zap_detailed_alerts_${scanId}.json`,
+          contentType: 'application/json',
+          size: detailedAlertsBuffer.length,
+          description: 'Full alert details with all affected URLs'
         }
-      );
-      console.log(`[ZAP] Stored ${reportFiles.length} report file references`);
-    }
-
-    return true;
+      ],
+      completedAt: new Date()
+    };
 
   } catch (error) {
-    console.error('[ZAP] Error saving scan completion:', error);
-
-    // Mark scan as failed
-    await ScanResult.findOneAndUpdate(
-      { analysisId: scanId },
-      {
-        $set: {
-          status: 'failed',
-          'zapResult.status': 'failed',
-          'zapResult.error': error.message
-        }
-      }
-    );
-
+    console.error('❌ ZAP scan failed:', error.message);
     throw error;
   }
 }
 
+// ============================================================================
+// FRONTEND API: Download Detailed Report
+// ============================================================================
+
 /**
- * Setup ZAP environment (ensure Python script is deployed)
+ * Express route to download detailed alert report
+ * Usage: GET /api/zap/detailed-report/:scanId
  */
-async function setupZapEnvironment() {
+async function downloadDetailedReport(req, res) {
   try {
-    const scriptsDir = path.join(__dirname, '../scripts');
+    const { scanId } = req.params;
 
-    // Create scripts directory if it doesn't exist
-    await fs.mkdir(scriptsDir, { recursive: true });
-
-    // Check if Python script exists
-    try {
-      await fs.access(ZAP_SCANNER_SCRIPT);
-      console.log('✅ ZAP scanner script found');
-    } catch {
-      console.log('⚠️  ZAP scanner script not found - will need to be deployed');
-      console.log(`   Expected location: ${ZAP_SCANNER_SCRIPT}`);
-      console.log('   Please copy zap_ai_scanner.py to backend/scripts/ directory');
+    // Find scan result
+    const scanResult = await ScanResult.findOne({ scanId });
+    if (!scanResult) {
+      return res.status(404).json({ error: 'Scan not found' });
     }
 
-    // Check Python availability
-    const { spawn } = require('child_process');
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-    return new Promise((resolve) => {
-      const pythonCheck = spawn(pythonCmd, ['--version']);
-      pythonCheck.on('close', (code) => {
-        if (code === 0) {
-          console.log(`✅ Python (${pythonCmd}) is available`);
-          resolve(true);
-        } else {
-          console.log(`⚠️  Python (${pythonCmd}) not found - required for ZAP scanning`);
-          resolve(false);
-        }
-      });
-      pythonCheck.on('error', () => {
-        console.log(`⚠️  Python (${pythonCmd}) not found - required for ZAP scanning`);
-        resolve(false);
-      });
-    });
+    // Find detailed alerts file
+    const detailedFile = scanResult.zapResult.reportFiles.find(
+      f => f.filename.includes('detailed_alerts')
+    );
+
+    if (!detailedFile) {
+      return res.status(404).json({ error: 'Detailed report not found' });
+    }
+
+    // Stream from GridFS
+    const stream = await gridfsService.downloadStream(detailedFile.fileId);
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${detailedFile.filename}"`);
+
+    stream.pipe(res);
 
   } catch (error) {
-    console.error('❌ Failed to setup ZAP environment:', error);
-    return false;
+    console.error('Download error:', error);
+    res.status(500).json({ error: 'Failed to download report' });
   }
 }
+
+// ============================================================================
+// EXPORTS
+// ============================================================================
 
 module.exports = {
-  checkZapHealth,
-  runComprehensiveZapScan,
-  runZapScan,  // Backward-compatible wrapper for combined scan
-  runZapScanWithDB,
-  getZapScanStatus,
-  setupZapEnvironment,
-  saveScanCompletion  // For manual scan completion
+  runZapScanWithUrlTracking,
+  downloadDetailedReport,
+  groupAlertsByUrl,
+  createDualVersionAlerts
 };
