@@ -8,6 +8,7 @@ const { scanHost } = require('../services/observatoryService');
 const { refineReport } = require('../services/geminiService');
 const { runZapScan } = require('../services/zapService');
 const { runUrlScan } = require('../services/urlscanService');
+const { runAllScans: runAllWebCheckScans } = require('../services/webCheckService');
 const ScanResult = require('../models/ScanResult');
 const auth = require('../middleware/auth');
 const { combinedScanLimiter } = require('../middleware/rateLimiter');
@@ -304,18 +305,18 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
     if (scan) {
       console.log('📝 Existing scan found, checking status...');
 
-      // 🚀 INSTANT CACHE: If scan completed recently (within 5 minutes), return cached results
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      if (scan.status === 'completed' && scan.updatedAt > fiveMinutesAgo && scan.refinedReport) {
-        console.log('⚡ Returning cached scan results (completed within last 5 minutes)');
-        return res.json({
-          success: true,
-          message: 'Returning cached results',
-          analysisId: analysisId,
-          url: url,
-          cached: true
-        });
-      }
+      // 🚀 INSTANT CACHE: DISABLED - Always run fresh scans
+      // const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      // if (scan.status === 'completed' && scan.updatedAt > fiveMinutesAgo && scan.refinedReport) {
+      //   console.log('⚡ Returning cached scan results (completed within last 5 minutes)');
+      //   return res.json({
+      //     success: true,
+      //     message: 'Returning cached results',
+      //     analysisId: analysisId,
+      //     url: url,
+      //     cached: true
+      //   });
+      // }
 
       scan.userId = req.user.id; // Update owner to current requester
       scan.updatedAt = Date.now();
@@ -412,8 +413,8 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         scan.status = 'combining';
         await scan.save();
 
-        // Run PageSpeed, Observatory, ZAP, and urlscan in parallel for faster execution
-        console.log('🚀 Fetching PageSpeed, Observatory, ZAP and urlscan reports in parallel...');
+        // Run PageSpeed, Observatory, ZAP, urlscan, and WebCheck in parallel for faster execution
+        console.log('🚀 Fetching PageSpeed, Observatory, ZAP, urlscan and WebCheck reports in parallel...');
 
         // Extract hostname for Observatory
         const hostname = new URL(scan.target).hostname;
@@ -421,11 +422,12 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
 
         // Execute all API calls in parallel using Promise.allSettled
         // This allows independent error handling for each service
-        const [psiResult, obsResult, zapResult, urlscanResult] = await Promise.allSettled([
+        const [psiResult, obsResult, zapResult, urlscanResult, webCheckResult] = await Promise.allSettled([
           getPageSpeedReport(scan.target),
           scanHost(hostname),
           runZapScan(scan.target),
-          runUrlScan(scan.target)
+          runUrlScan(scan.target),
+          runAllWebCheckScans(scan.target)
         ]);
 
         // Handle PageSpeed result
@@ -434,11 +436,13 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           psiReport = psiResult.value;
           scan.pagespeedResult = psiReport;
           console.log('✅ PageSpeed report fetched successfully');
+          await scan.save(); // 💾 Save immediately so it survives crashes
         } else {
           console.error('⚠️  PageSpeed scan failed:', psiResult.reason);
           console.error('⚠️  Error details:', psiResult.reason?.message);
           // Store error gracefully - don't fail entire scan
           scan.pagespeedResult = { error: psiResult.reason?.message || 'PageSpeed scan failed' };
+          await scan.save(); // 💾 Save error state too
         }
 
         // Handle Observatory result
@@ -447,11 +451,13 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           observatoryReport = obsResult.value;
           scan.observatoryResult = observatoryReport;
           console.log('✅ Observatory scan result:', observatoryReport);
+          await scan.save(); // 💾 Save immediately
         } else {
           console.error('⚠️  Observatory scan failed:', obsResult.reason);
           console.error('⚠️  Error details:', obsResult.reason?.message);
           // Continue even if Observatory fails - it's not critical
           scan.observatoryResult = { error: obsResult.reason?.message || 'Observatory scan failed' };
+          await scan.save(); // 💾 Save error state too
         }
 
         // Handle ZAP result
@@ -460,11 +466,13 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           zapReport = zapResult.value;
           scan.zapResult = zapReport;
           console.log('✅ ZAP scan completed:', zapReport?.riskCounts);
+          await scan.save(); // 💾 Save immediately
         } else {
           console.error('⚠️  ZAP scan failed:', zapResult.reason);
           console.error('⚠️  Error details:', zapResult.reason?.message);
           // Continue even if ZAP fails - it's not critical
           scan.zapResult = { error: zapResult.reason?.message || 'ZAP scan failed or not available' };
+          await scan.save(); // 💾 Save error state too
         }
 
         // Handle urlscan result
@@ -473,14 +481,31 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           urlscanReport = urlscanResult.value;
           scan.urlscanResult = urlscanReport;
           console.log('✅ urlscan completed:', urlscanReport?.verdicts?.overall?.malicious ? 'MALICIOUS' : 'Clean');
+          await scan.save(); // 💾 Save immediately
         } else {
           console.error('⚠️  urlscan failed:', urlscanResult.reason);
           console.error('⚠️  Error details:', urlscanResult.reason?.message);
           // Continue even if urlscan fails - it's not critical
           scan.urlscanResult = { error: urlscanResult.reason?.message || 'urlscan failed or not available' };
+          await scan.save(); // 💾 Save error state too
         }
 
-        // Generate refined report with Gemini (now includes Observatory, ZAP, and urlscan data)
+        // Handle WebCheck result (30 scans)
+        let webCheckReport = null;
+        if (webCheckResult.status === 'fulfilled') {
+          webCheckReport = webCheckResult.value;
+          scan.webCheckResult = webCheckReport;
+          console.log('✅ WebCheck completed:', Object.keys(webCheckReport).length, 'scans');
+          await scan.save(); // 💾 Save immediately
+        } else {
+          console.error('⚠️  WebCheck failed:', webCheckResult.reason);
+          console.error('⚠️  Error details:', webCheckResult.reason?.message);
+          // Continue even if WebCheck fails - it's not critical
+          scan.webCheckResult = { error: webCheckResult.reason?.message || 'WebCheck failed or not available' };
+          await scan.save(); // 💾 Save error state too
+        }
+
+        // Generate refined report with Gemini (now includes Observatory, ZAP, urlscan and WebCheck data)
         console.log('🤖 Generating AI-refined report with all scan data...');
         try {
           const aiReport = await refineReport(scan.vtResult, psiReport, observatoryReport, scan.target, zapReport, urlscanReport);
@@ -545,6 +570,8 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       reportUrl: scan.urlscanResult.reportUrl
     } : null;
 
+    const webCheckData = scan.webCheckResult && !scan.webCheckResult.error ? scan.webCheckResult : null;
+
     // Always return all available data (progressive loading)
     return res.json({
       success: true,
@@ -557,6 +584,7 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       hasObservatoryResult: !!scan.observatoryResult,
       hasZapResult: !!scan.zapResult && !scan.zapResult.error,
       hasUrlscanResult: !!scan.urlscanResult && !scan.urlscanResult.error,
+      hasWebCheckResult: !!scan.webCheckResult && !scan.webCheckResult.error,
       hasRefinedReport: !!scan.refinedReport,
       // Actual data (null if not yet available)
       vtStats: vtStats,
@@ -564,12 +592,14 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       observatoryData: observatoryData,
       zapData: zapData,
       urlscanData: urlscanData,
+      webCheckData: webCheckData,
       refinedReport: scan.refinedReport || null,
       vtResult: scan.vtResult || null,
       pagespeedResult: scan.pagespeedResult || null,
       observatoryResult: scan.observatoryResult || null,
       zapResult: scan.zapResult || null,
       urlscanResult: scan.urlscanResult || null,
+      webCheckResult: scan.webCheckResult || null,
       createdAt: scan.createdAt,
       updatedAt: scan.updatedAt
     });

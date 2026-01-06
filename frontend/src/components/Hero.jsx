@@ -7,6 +7,30 @@ import '../styles/HeroReport.scss';
 // Define API Base URL to avoid port mismatch issues
 const API_BASE = 'http://localhost:3001';
 
+// 🔒 LocalStorage keys for scan persistence (survives page reload)
+const SCAN_STORAGE_KEY = 'ssdt_active_scan';
+const SCAN_RESULTS_KEY = 'ssdt_scan_results';
+
+// 🔄 Fetch with retry and exponential backoff
+const fetchWithRetry = async (url, options, maxRetries = 5, onRetry = null) => {
+  let lastError;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries - 1) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 16000); // 1s, 2s, 4s, 8s, 16s max
+        console.log(`🔄 Fetch failed, retrying in ${delay / 1000}s... (attempt ${attempt + 1}/${maxRetries})`);
+        if (onRetry) onRetry(attempt + 1, maxRetries);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+};
+
 // 🔄 Loading Placeholder Component for progressive loading
 const LoadingPlaceholder = ({ height = '1.5rem', width = '100%', style = {} }) => (
   <div
@@ -30,10 +54,8 @@ const Hero = () => {
   // ⚡ ZAP is now handled by backend combined scan - keeping zapReport for backward compatibility with useEffect
   const [zapReport] = useState(null);
 
-  // 🔍 WebCheck Specific State
-  const [webCheckReport, setWebCheckReport] = useState(null);
-  const [webCheckLoading, setWebCheckLoading] = useState(false);
-  const [webCheckError, setWebCheckError] = useState(null);
+  // 🔍 WebCheck is now handled by backend combined scan
+  // Results come through report.webCheckData
 
   const navigate = useNavigate();
   const { currentLang, setHasReport } = useTranslation();
@@ -42,6 +64,10 @@ const Hero = () => {
   const [translatedReport, setTranslatedReport] = useState(null);
   const [isTranslatingReport, setIsTranslatingReport] = useState(false);
 
+  // 🔄 Network Resilience State
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+
   // Translate entire report when language changes
   useEffect(() => {
     if (report || zapReport) {
@@ -49,7 +75,7 @@ const Hero = () => {
     } else {
       setHasReport(false);
     }
-  }, [report, zapReport, webCheckReport, setHasReport]);
+  }, [report, zapReport, setHasReport]);
 
   // Translate the report when language changes to Japanese
   useEffect(() => {
@@ -93,67 +119,116 @@ const Hero = () => {
     translateReport();
   }, [report?.refinedReport, currentLang, translatedReport]);
 
+  // 🔄 Auto-resume scan on page load (if there's an active scan in localStorage)
+  useEffect(() => {
+    const resumeScan = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const savedScan = localStorage.getItem(SCAN_STORAGE_KEY);
+      const savedResults = localStorage.getItem(SCAN_RESULTS_KEY);
+
+      if (savedScan) {
+        try {
+          const { analysisId, url, startTime } = JSON.parse(savedScan);
+          console.log('🔄 Found active scan in localStorage, resuming...', { analysisId, url });
+
+          // Restore any saved partial results immediately
+          if (savedResults) {
+            const parsedResults = JSON.parse(savedResults);
+            setReport(parsedResults);
+            console.log('📋 Restored saved scan results from localStorage');
+          }
+
+          // Resume the loading state
+          setLoading(true);
+          setLoadingStage('Resuming scan...');
+          setLoadingProgress(30);
+
+          // Start polling again
+          const pollResumedScan = async () => {
+            try {
+              const analysisRes = await fetchWithRetry(
+                `${API_BASE}/api/vt/combined-analysis/${analysisId}`,
+                { headers: { 'x-auth-token': token } },
+                5,
+                (attempt, max) => {
+                  setIsReconnecting(true);
+                  setReconnectAttempt(attempt);
+                }
+              );
+
+              setIsReconnecting(false);
+              setReconnectAttempt(0);
+
+              const analysisData = await analysisRes.json();
+              const status = analysisData.status;
+
+              // Update report with latest data
+              if (analysisData.target) {
+                setReport(prevReport => ({
+                  ...prevReport,
+                  ...analysisData,
+                  isPartial: status !== 'completed'
+                }));
+                // Save to localStorage
+                localStorage.setItem(SCAN_RESULTS_KEY, JSON.stringify(analysisData));
+              }
+
+              if (status === 'completed') {
+                setLoadingProgress(100);
+                setLoadingStage('Analysis complete!');
+                // Clear localStorage on completion
+                localStorage.removeItem(SCAN_STORAGE_KEY);
+                localStorage.removeItem(SCAN_RESULTS_KEY);
+                setTimeout(() => {
+                  setLoading(false);
+                  setLoadingProgress(0);
+                  setLoadingStage('');
+                }, 500);
+              } else if (status === 'failed') {
+                localStorage.removeItem(SCAN_STORAGE_KEY);
+                localStorage.removeItem(SCAN_RESULTS_KEY);
+                setError('Analysis failed');
+                setLoading(false);
+              } else {
+                // Update status message
+                let statusMessage = 'Analyzing...';
+                if (!analysisData.hasVtResult) statusMessage = '🔍 Running VirusTotal scan...';
+                else if (!analysisData.hasPsiResult || !analysisData.hasObservatoryResult || !analysisData.hasZapResult || !analysisData.hasWebCheckResult)
+                  statusMessage = '📊 Fetching PageSpeed, Observatory, ZAP & WebCheck...';
+                else if (!analysisData.hasRefinedReport) statusMessage = '🤖 Generating AI report...';
+                else statusMessage = '✅ Finalizing results...';
+
+                setLoadingStage(statusMessage);
+                // Continue polling - no timeout limit
+                setTimeout(pollResumedScan, 2000);
+              }
+            } catch (pollError) {
+              console.error('❌ Resume poll error:', pollError);
+              setIsReconnecting(true);
+              // Keep retrying indefinitely on network errors
+              setTimeout(pollResumedScan, 5000);
+            }
+          };
+
+          pollResumedScan();
+        } catch (err) {
+          console.error('❌ Failed to resume scan:', err);
+          localStorage.removeItem(SCAN_STORAGE_KEY);
+          localStorage.removeItem(SCAN_RESULTS_KEY);
+        }
+      }
+    };
+
+    resumeScan();
+  }, []); // Run once on mount
+
   // ⚡ ZAP scan is now integrated in the backend combined scan
   // No need for independent frontend ZAP call
 
-  // 🔍 Helper: Run WebCheck Scans in parallel
-  const runWebCheckScans = async (url, token) => {
-    // ALL 30 WebCheck scan types
-    const scanTypes = [
-      'ssl', 'dns', 'headers', 'cookies', 'firewall', 'ports',
-      'screenshot', 'tech-stack', 'hsts', 'security-txt', 'block-lists',
-      'social-tags', 'linked-pages', 'robots-txt', 'sitemap', 'status',
-      'redirects', 'mail-config', 'trace-route', 'http-security', 'get-ip',
-      'dns-server', 'dnssec', 'txt-records', 'carbon', 'archives',
-      'legacy-rank', 'whois', 'tls', 'quality'
-    ];
-
-    try {
-      console.log('🔍 Starting WebCheck scans for:', url);
-      setWebCheckLoading(true);
-      setWebCheckReport(null);
-      setWebCheckError(null);
-
-      // Run all scans in parallel
-      const results = await Promise.allSettled(
-        scanTypes.map(async (type) => {
-          try {
-            const res = await fetch(`${API_BASE}/api/webcheck/scan`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-auth-token': token
-              },
-              body: JSON.stringify({ url, type }),
-            });
-            const data = await res.json();
-            return { type, success: data.success, data: data.data || data };
-          } catch (err) {
-            return { type, success: false, error: err.message };
-          }
-        })
-      );
-
-      // Collect results
-      const scanResults = {};
-      results.forEach((result, index) => {
-        const type = scanTypes[index];
-        if (result.status === 'fulfilled' && result.value.success !== false) {
-          scanResults[type] = result.value.data;
-        } else {
-          scanResults[type] = { error: result.reason?.message || result.value?.error || 'Scan failed' };
-        }
-      });
-
-      setWebCheckReport(scanResults);
-      console.log('🔍 WebCheck scans complete:', Object.keys(scanResults).length, 'results');
-    } catch (err) {
-      console.error('❌ WebCheck Error:', err);
-      setWebCheckError(err.message);
-    } finally {
-      setWebCheckLoading(false);
-    }
-  };
+  // 🔍 WebCheck is now integrated in the backend combined scan
+  // Results come through report.webCheckData - no need for frontend function
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -165,32 +240,50 @@ const Hero = () => {
       return;
     }
 
+    // 🧹 Clear any previous scan from localStorage
+    localStorage.removeItem(SCAN_STORAGE_KEY);
+    localStorage.removeItem(SCAN_RESULTS_KEY);
+
     setLoading(true);
     setLoadingProgress(0);
     setLoadingStage('Initializing scan...');
     setError(null);
     setReport(null);
+    setIsReconnecting(false);
+    setReconnectAttempt(0);
 
     // ⚡ ZAP is now integrated in the backend combined scan
     // No need to run independently - this ensures Gemini waits for ZAP completion
 
-    // 🔍 Trigger WebCheck Scans in background (Parallel)
-    runWebCheckScans(url, token);
+    // 🔍 WebCheck is now integrated in the backend combined scan
+    // No need to run from frontend - results come through report.webCheckData
 
     try {
       console.log('🔍 Submitting URL for scan:', url);
       setLoadingProgress(10);
       setLoadingStage('Submitting URL to security scanners...');
 
-      // 👇 FIXED: Use API_BASE (port 3001)
-      const res = await fetch(`${API_BASE}/api/vt/combined-url-scan`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-auth-token': token
+      // 👇 Use fetchWithRetry for initial submission
+      const res = await fetchWithRetry(
+        `${API_BASE}/api/vt/combined-url-scan`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-auth-token': token
+          },
+          body: JSON.stringify({ url }),
         },
-        body: JSON.stringify({ url }),
-      });
+        5,
+        (attempt, max) => {
+          setIsReconnecting(true);
+          setReconnectAttempt(attempt);
+          setLoadingStage(`Connection lost, reconnecting... (${attempt}/${max})`);
+        }
+      );
+
+      setIsReconnecting(false);
+      setReconnectAttempt(0);
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
@@ -208,52 +301,65 @@ const Hero = () => {
       const analysisId = data.analysisId || data.data?.id;
       if (!analysisId) throw new Error("No analysisId in response");
 
+      // 💾 Save scan info to localStorage for resume capability
+      localStorage.setItem(SCAN_STORAGE_KEY, JSON.stringify({
+        analysisId,
+        url,
+        startTime: Date.now()
+      }));
+
       setLoadingProgress(30);
       setLoadingStage('Running VirusTotal security scan...');
 
-      let attempts = 0;
-      const maxAttempts = 60; // 2 minutes total with 2s intervals
-
+      // 🔄 No timeout limit - poll indefinitely until complete
       const pollAnalysis = async () => {
-        attempts++;
-        const progressIncrement = 60 / maxAttempts;
-        const currentProgress = Math.min(30 + (attempts * progressIncrement), 90);
-        setLoadingProgress(Math.floor(currentProgress));
-
         try {
-          // 👇 FIXED: Use API_BASE (port 3001)
-          const analysisRes = await fetch(`${API_BASE}/api/vt/combined-analysis/${analysisId}`, {
-            headers: { 'x-auth-token': token }
-          });
+          // 👇 Use fetchWithRetry for polling with reconnection indicator
+          const analysisRes = await fetchWithRetry(
+            `${API_BASE}/api/vt/combined-analysis/${analysisId}`,
+            { headers: { 'x-auth-token': token } },
+            5,
+            (attempt, max) => {
+              setIsReconnecting(true);
+              setReconnectAttempt(attempt);
+              setLoadingStage(`Connection lost, reconnecting... (${attempt}/${max})`);
+            }
+          );
+
+          setIsReconnecting(false);
+          setReconnectAttempt(0);
+
           const analysisData = await analysisRes.json();
           const status = analysisData.status;
 
           // 🚀 Progressive Loading: Update report with partial data
           if (analysisData.target) {
-            setReport(prevReport => ({
-              ...prevReport,
+            const updatedReport = {
+              ...report,
               ...analysisData,
-              // Keep loading state indicators
               isPartial: status !== 'completed'
-            }));
+            };
+            setReport(updatedReport);
+            // 💾 Save partial results to localStorage
+            localStorage.setItem(SCAN_RESULTS_KEY, JSON.stringify(updatedReport));
           }
 
           if (status === 'completed') {
             setLoadingProgress(100);
             setLoadingStage('Analysis complete!');
+            // 🧹 Clear localStorage on completion
+            localStorage.removeItem(SCAN_STORAGE_KEY);
+            localStorage.removeItem(SCAN_RESULTS_KEY);
             setTimeout(() => {
               setLoading(false);
               setLoadingProgress(0);
               setLoadingStage('');
             }, 500);
           } else if (status === 'failed') {
+            // 🧹 Clear localStorage on failure
+            localStorage.removeItem(SCAN_STORAGE_KEY);
+            localStorage.removeItem(SCAN_RESULTS_KEY);
             throw new Error('Analysis failed: ' + (analysisData.error || 'Unknown error'));
-          } else if (attempts >= maxAttempts) {
-            // Don't throw error - just stop loading, show partial results
-            setLoading(false);
-            setLoadingProgress(0);
-            setLoadingStage('');
-            console.log('Max attempts reached, showing partial results');
           } else {
             // Show progress indicators based on what we have
             let statusMessage = 'Analyzing...';
@@ -261,19 +367,28 @@ const Hero = () => {
             const hasPsi = analysisData.hasPsiResult;
             const hasObs = analysisData.hasObservatoryResult;
             const hasZap = analysisData.hasZapResult;
+            const hasWebCheck = analysisData.hasWebCheckResult;
             const hasAi = analysisData.hasRefinedReport;
 
             if (!hasVt) statusMessage = '🔍 Running VirusTotal scan...';
-            else if (!hasPsi || !hasObs || !hasZap) statusMessage = '📊 Fetching PageSpeed, Observatory & ZAP...';
-            else if (!hasAi) statusMessage = '🤖 Generating AI report (with ZAP data)...';
+            else if (!hasPsi || !hasObs || !hasZap || !hasWebCheck) statusMessage = '📊 Fetching PageSpeed, Observatory, ZAP & WebCheck...';
+            else if (!hasAi) statusMessage = '🤖 Generating AI report...';
             else statusMessage = '✅ Finalizing results...';
 
             setLoadingStage(statusMessage);
+            // 🔄 Continue polling indefinitely - no maxAttempts limit
             setTimeout(pollAnalysis, 2000);
           }
         } catch (pollError) {
           console.error('Polling error:', pollError);
-          throw pollError;
+          // 🔄 On network failure, keep retrying instead of giving up
+          if (pollError.message.includes('fetch') || pollError.message.includes('network')) {
+            setIsReconnecting(true);
+            setLoadingStage('Connection lost, retrying...');
+            setTimeout(pollAnalysis, 5000); // Retry after 5 seconds
+          } else {
+            throw pollError; // Re-throw non-network errors
+          }
         }
       };
 
@@ -285,9 +400,14 @@ const Hero = () => {
       if (err.message.includes('429')) errorMessage = err.message;
       else errorMessage += err.message;
 
+      // 🧹 Clear localStorage on error
+      localStorage.removeItem(SCAN_STORAGE_KEY);
+      localStorage.removeItem(SCAN_RESULTS_KEY);
+
       setError(errorMessage);
       setLoading(false);
       setLoadingProgress(0);
+      setIsReconnecting(false);
     }
   };
 
@@ -306,6 +426,8 @@ const Hero = () => {
     const observatoryData = report?.observatoryData || null;
     const refinedReport = report?.refinedReport;
     const engines = report?.vtResult?.data?.attributes?.results || {};
+    // 🔍 WebCheck data now comes from backend (was previously from local state)
+    const webCheckReport = report?.webCheckData || null;
 
     const categoryDescriptions = {
       malicious: "High Risk",
@@ -512,7 +634,7 @@ const Hero = () => {
           {/* 🔍 WebCheck: SSL Certificate */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔐 SSL Certificate</h4>
-            {webCheckLoading ? (
+            {loading && !report?.hasWebCheckResult ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.ssl && !webCheckReport.ssl.error ? (
               <>
@@ -520,14 +642,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.ssl.issuer?.O || 'Unknown Issuer'}</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{webCheckError ? 'Failed' : (report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending')}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !report?.hasWebCheckResult ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Security Headers */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🛡️ Security Headers</h4>
-            {webCheckLoading ? (
+            {loading && !report?.hasWebCheckResult ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.['http-security'] && !webCheckReport['http-security'].error ? (
               <>
@@ -540,14 +662,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Headers Present</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !report?.hasWebCheckResult ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Tech Stack */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🛠️ Tech Stack</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : (() => {
               // Handle various response formats from tech-stack scan
@@ -566,7 +688,7 @@ const Hero = () => {
               } else if (techData && !techData.error) {
                 return <div style={{ color: '#888', marginTop: '10px' }}>No technologies detected</div>;
               } else {
-                return <div style={{ color: '#888', marginTop: '10px' }}>{techData?.error ? 'Scan Failed' : (report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending')}</div>;
+                return <div style={{ color: '#888', marginTop: '10px' }}>{techData?.error ? 'Scan Failed' : (report?.status === 'completed' && report?.hasWebCheckResult ? 'Unavailable' : 'Pending')}</div>;
               }
             })()}
           </div>
@@ -574,7 +696,7 @@ const Hero = () => {
           {/* 🔍 WebCheck: Firewall/WAF */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔥 Firewall</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.firewall && !webCheckReport.firewall.error ? (
               <>
@@ -584,14 +706,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>WAF Status</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: TLS Grade */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔒 TLS Grade</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.tls && !webCheckReport.tls.error ? (
               <>
@@ -601,14 +723,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Score: {webCheckReport.tls.tlsInfo?.score || 0}/100</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Quality (PageSpeed) */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📊 Quality</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.quality && !webCheckReport.quality.error ? (
               (() => {
@@ -623,14 +745,14 @@ const Hero = () => {
                 );
               })()
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Mail Config */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📧 Mail Config</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.['mail-config'] && !webCheckReport['mail-config'].error && !webCheckReport['mail-config'].skipped ? (
               <>
@@ -642,14 +764,14 @@ const Hero = () => {
             ) : webCheckReport?.['mail-config']?.skipped ? (
               <div style={{ color: '#888', marginTop: '10px' }}>No Mail Server</div>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: WHOIS */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📋 WHOIS</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.whois && !webCheckReport.whois.error ? (
               <>
@@ -659,14 +781,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Domain Registered</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: HSTS */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔐 HSTS</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.hsts && !webCheckReport.hsts.error ? (
               <>
@@ -676,14 +798,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.hsts.hstsPreloaded ? 'Preloaded' : 'Not Preloaded'}</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Block Lists */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🚫 Block Lists</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.['block-lists'] && !webCheckReport['block-lists'].error ? (
               (() => {
@@ -699,14 +821,14 @@ const Hero = () => {
                 );
               })()
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Carbon Footprint */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🌱 Carbon</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.carbon && !webCheckReport.carbon.error ? (
               <>
@@ -716,14 +838,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.carbon.co2?.grid?.grams ? `${webCheckReport.carbon.co2.grid.grams.toFixed(2)}g CO2` : 'Hosting'}</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Archives */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📚 Archives</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.archives?.skipped ? (
               <div style={{ color: '#888', marginTop: '10px' }}>Not Archived</div>
@@ -737,14 +859,14 @@ const Hero = () => {
             ) : webCheckReport?.archives?.error ? (
               <div style={{ color: '#ffb900', marginTop: '10px' }}>Timeout</div>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Sitemap */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🗺️ Sitemap</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.sitemap?.skipped || webCheckReport?.sitemap?.error ? (
               <div style={{ color: '#888', marginTop: '10px' }}>Not Found</div>
@@ -758,14 +880,14 @@ const Hero = () => {
             ) : webCheckReport?.sitemap ? (
               <div style={{ color: '#00d084', marginTop: '10px' }}>Found</div>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Social Tags */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📱 Social Tags</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.['social-tags'] && !webCheckReport['social-tags'].error ? (
               (() => {
@@ -782,14 +904,14 @@ const Hero = () => {
                 );
               })()
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Linked Pages */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔗 Links</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.['linked-pages'] && !webCheckReport['linked-pages'].error ? (
               <>
@@ -799,14 +921,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Links Found</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Redirects */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>↪️ Redirects</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.redirects && !webCheckReport.redirects.error ? (
               <>
@@ -816,14 +938,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Redirect Hops</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: DNS Server */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🌐 DNS Server</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.['dns-server'] && !webCheckReport['dns-server'].error ? (
               <>
@@ -833,14 +955,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Servers Found</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: DNSSEC */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔑 DNSSEC</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.dnssec && !webCheckReport.dnssec.error ? (
               <>
@@ -850,14 +972,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>DNSSEC Status</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Security.txt */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📄 Security.txt</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.['security-txt'] && !webCheckReport['security-txt'].error ? (
               <>
@@ -867,14 +989,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Security Policy</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Robots.txt */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🤖 Robots.txt</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.['robots-txt'] && !webCheckReport['robots-txt'].error ? (
               <>
@@ -884,14 +1006,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Crawler Rules</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !(loading && !report?.hasWebCheckResult) ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Status */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🟢 Status</h4>
-            {webCheckLoading ? (
+            {(loading && !report?.hasWebCheckResult) ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.status && !webCheckReport.status.error ? (
               <>
@@ -901,14 +1023,14 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.status.responseTime ? `${webCheckReport.status.responseTime}ms` : 'HTTP Status'}</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !report?.hasWebCheckResult ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Legacy Rank */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📈 Rank</h4>
-            {webCheckLoading ? (
+            {loading && !report?.hasWebCheckResult ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
             ) : webCheckReport?.['legacy-rank'] && !webCheckReport['legacy-rank'].error ? (
               <>
@@ -918,7 +1040,7 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Global Rank</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !report?.hasWebCheckResult ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
         </div>
@@ -1380,10 +1502,35 @@ const Hero = () => {
             <input id="url-input" name="url" type="text" placeholder="E.g. https://google.com" defaultValue="https://google.com" required />
             <button type="submit" disabled={loading} className={loading ? 'analyzing' : ''} style={{ '--progress': `${loadingProgress}%` }}>
               {loading && <div className="progress-percentage">{loadingProgress}%</div>}
-              <span className="button-text">{loading ? 'Analyzing...' : 'Analyze URL'}</span>
+              <span className="button-text">
+                {loading ? (isReconnecting ? `Reconnecting (${reconnectAttempt}/5)...` : 'Analyzing...') : 'Analyze URL'}
+              </span>
             </button>
           </div>
         </form>
+        {/* 🔄 Reconnection Indicator */}
+        {isReconnecting && (
+          <div className="reconnection-indicator" style={{
+            background: 'linear-gradient(135deg, #ff6b35 0%, #f72585 100%)',
+            color: 'white',
+            padding: '1rem 1.5rem',
+            borderRadius: '12px',
+            marginTop: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            animation: 'pulse 2s infinite',
+            boxShadow: '0 4px 15px rgba(247, 37, 133, 0.3)'
+          }}>
+            <span style={{ fontSize: '1.5rem', animation: 'spin 1s linear infinite' }}>🔄</span>
+            <div>
+              <div style={{ fontWeight: 'bold' }}>Connection Lost - Reconnecting...</div>
+              <div style={{ fontSize: '0.85rem', opacity: 0.9 }}>
+                Attempt {reconnectAttempt}/5 • Your scan is still running on the server
+              </div>
+            </div>
+          </div>
+        )}
         {renderReport()}
       </div>
     </section>

@@ -211,6 +211,20 @@ body.dark {
   }
 }
 
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Reconnection Indicator */
+.reconnection-indicator {
+  animation: pulse 2s infinite;
+}
+
 .loading-placeholder {
   background: linear-gradient(
     90deg,

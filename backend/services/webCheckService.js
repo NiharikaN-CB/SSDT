@@ -64,8 +64,45 @@ const checkHealth = async () => {
     }
 };
 
+/**
+ * Run ALL WebCheck scans in parallel for a URL
+ * @param {string} url - Target URL to scan
+ * @returns {Promise<object>} Object with all scan results keyed by scan type
+ */
+const runAllScans = async (url) => {
+    console.log(`[WebCheck] Running ALL ${ALLOWED_SCANS.length} scans for: ${url}`);
+
+    const results = await Promise.allSettled(
+        ALLOWED_SCANS.map(async (scanType) => {
+            try {
+                const data = await runScan(scanType, url);
+                return { type: scanType, success: true, data };
+            } catch (error) {
+                return { type: scanType, success: false, error: error.message };
+            }
+        })
+    );
+
+    // Collect results into an object keyed by scan type
+    const scanResults = {};
+    results.forEach((result, index) => {
+        const type = ALLOWED_SCANS[index];
+        if (result.status === 'fulfilled' && result.value.success) {
+            scanResults[type] = result.value.data;
+        } else {
+            scanResults[type] = {
+                error: result.reason?.message || result.value?.error || 'Scan failed'
+            };
+        }
+    });
+
+    console.log(`[WebCheck] Completed ${Object.keys(scanResults).length} scans`);
+    return scanResults;
+};
+
 module.exports = {
     runScan,
+    runAllScans,
     getAvailableScans,
     checkHealth,
     ALLOWED_SCANS

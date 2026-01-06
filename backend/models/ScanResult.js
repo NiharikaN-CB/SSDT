@@ -34,6 +34,11 @@ const scanResultSchema = new mongoose.Schema({
     type: Object,
     default: null
   },
+  // WebCheck 30 scan types result
+  webCheckResult: {
+    type: Object,
+    default: null
+  },
   refinedReport: {
     type: String,
     default: null
