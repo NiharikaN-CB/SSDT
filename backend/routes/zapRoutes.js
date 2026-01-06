@@ -88,9 +88,11 @@ router.post('/scan', auth, scanLimiter, async (req, res) => {
       });
     }
 
-    // Start the scan asynchronously and return scan ID immediately
-    // The scan will run in the background and update the database
-    const scanPromise = runZapScanWithDB(url, req.user.id, { quickMode });
+    // Generate scan ID BEFORE starting scan (Issue #10 fix)
+    const scanId = `zap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Start the scan asynchronously with the pre-generated scanId
+    const scanPromise = runZapScanWithDB(url, req.user.id, { quickMode, scanId });
 
     // Don't wait for completion - return scan ID immediately
     scanPromise.then(result => {
@@ -98,9 +100,6 @@ router.post('/scan', auth, scanLimiter, async (req, res) => {
     }).catch(error => {
       console.error(`❌ Scan failed for user ${req.user.id}:`, error.message);
     });
-
-    // Generate scan ID immediately
-    const scanId = `zap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     res.json({
       success: true,
@@ -324,6 +323,7 @@ router.get('/scans/:scanId/report/:format', auth, async (req, res) => {
   try {
     const { scanId, format } = req.params;
     const ScanResult = require('../models/ScanResult');
+    const mongoose = require('mongoose'); // Issue #4 fix: Add mongoose import
 
     // Get scan result and verify ownership
     const scan = await ScanResult.findOne({
@@ -350,8 +350,20 @@ router.get('/scans/:scanId/report/:format', auth, async (req, res) => {
       });
     }
 
+    // Validate ObjectId format (Issue #4 fix)
+    let fileId;
+    try {
+      fileId = new mongoose.Types.ObjectId(reportFile.fileId);
+    } catch (oidError) {
+      console.error('Invalid ObjectId format:', reportFile.fileId);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid report file reference'
+      });
+    }
+
     // Get file metadata
-    const fileMetadata = await gridfsService.getFileMetadata(reportFile.fileId);
+    const fileMetadata = await gridfsService.getFileMetadata(fileId);
     if (!fileMetadata) {
       return res.status(404).json({
         success: false,
@@ -372,16 +384,29 @@ router.get('/scans/:scanId/report/:format', auth, async (req, res) => {
       'Content-Length': fileMetadata.length
     });
 
-    // Stream file to response (efficient for large files)
-    const downloadStream = gridfsService.downloadFileStream(reportFile.fileId);
+    // Stream file to response (efficient for large files) with error handling
+    const downloadStream = gridfsService.downloadFileStream(fileId);
+
+    downloadStream.on('error', (streamError) => {
+      console.error('GridFS stream error:', streamError);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to stream report file'
+        });
+      }
+    });
+
     downloadStream.pipe(res);
 
   } catch (error) {
     console.error('Error downloading report:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to download report'
-    });
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to download report'
+      });
+    }
   }
 });
 

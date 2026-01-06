@@ -61,7 +61,7 @@ class GridFSService {
         return new Promise((resolve, reject) => {
             const chunks = [];
             const downloadStream = bucket.openDownloadStream(
-                mongoose.Types.ObjectId(fileId)
+                new mongoose.Types.ObjectId(fileId)
             );
 
             downloadStream.on('data', chunk => chunks.push(chunk));
@@ -77,7 +77,7 @@ class GridFSService {
      */
     downloadFileStream(fileId) {
         const bucket = this.initialize();
-        return bucket.openDownloadStream(mongoose.Types.ObjectId(fileId));
+        return bucket.openDownloadStream(new mongoose.Types.ObjectId(fileId));
     }
 
     /**
@@ -86,7 +86,7 @@ class GridFSService {
      */
     async deleteFile(fileId) {
         const bucket = this.initialize();
-        await bucket.delete(mongoose.Types.ObjectId(fileId));
+        await bucket.delete(new mongoose.Types.ObjectId(fileId));
     }
 
     /**
@@ -109,7 +109,7 @@ class GridFSService {
     async getFileMetadata(fileId) {
         const bucket = this.initialize();
         const files = await bucket
-            .find({ _id: mongoose.Types.ObjectId(fileId) })
+            .find({ _id: new mongoose.Types.ObjectId(fileId) })
             .toArray();
         return files[0] || null;
     }

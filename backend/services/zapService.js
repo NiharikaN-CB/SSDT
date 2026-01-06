@@ -263,10 +263,11 @@ async function runZapScan(targetUrl) {
 async function runZapScanWithDB(targetUrl, userId, options = {}) {
   const ScanResult = require('../models/ScanResult');
 
+  // Use provided scanId or generate new one (moved outside try block for scope)
+  let scanId = options.scanId || `zap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
   try {
     // Create initial scan record
-    const scanId = `zap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
     const scan = new ScanResult({
       target: targetUrl,
       analysisId: scanId,
@@ -311,8 +312,15 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
       }
     });
 
+    // Transform results to match expected format for saveScanCompletion
+    const transformedResults = {
+      stats: results.stats,
+      target: targetUrl,
+      scanId: scanId
+    };
+
     // Save scan completion using split storage to avoid 16MB limit
-    await saveScanCompletion(scanId, results);
+    await saveScanCompletion(scanId, transformedResults);
 
     console.log(`✅ Scan completed and saved: ${scanId}`);
 
@@ -327,22 +335,22 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
   } catch (error) {
     console.error('❌ ZAP scan with DB failed:', error);
 
-    // Update scan status to failed if it exists
-    try {
-      const ScanResult = require('../models/ScanResult');
-      await ScanResult.updateOne(
-        { analysisId: scanId },
-        {
-          status: 'failed',
-          zapResult: {
+    // Update scan status to failed if it exists (scanId is now in scope)
+    if (scanId) {
+      try {
+        const ScanResult = require('../models/ScanResult');
+        await ScanResult.updateOne(
+          { analysisId: scanId },
+          {
             status: 'failed',
-            error: error.message,
-            failedAt: new Date().toISOString()
+            'zapResult.status': 'failed',
+            'zapResult.error': error.message,
+            'zapResult.failedAt': new Date().toISOString()
           }
-        }
-      );
-    } catch (updateError) {
-      console.error('⚠️  Failed to update scan status:', updateError.message);
+        );
+      } catch (updateError) {
+        console.error('⚠️  Failed to update scan status:', updateError.message);
+      }
     }
 
     throw error;
