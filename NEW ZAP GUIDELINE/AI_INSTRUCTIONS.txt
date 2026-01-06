@@ -1,0 +1,427 @@
+# AI Integration Instructions - ZAP Maximum Performance Scanner
+
+## Overview
+This folder contains everything needed to integrate the OWASP ZAP maximum performance scanner into the SSDT backend. Follow these instructions step-by-step to complete the integration.
+
+---
+
+## 📁 Files in This Folder
+
+1. **zap_ai_scanner.py** - Python scanner script (core engine)
+2. **enhanced_zapService.js** - Backend service (replaces existing)
+3. **enhanced_zapRoutes.js** - API routes (replaces existing)
+4. **ZAP_INTEGRATION_GUIDE.md** - Detailed documentation
+5. **AI_INSTRUCTIONS.txt** - This file
+
+---
+
+## 🤖 AI Agent: Follow These Steps
+
+### STEP 1: Deploy Python Scanner Script
+```bash
+# Create scripts directory if it doesn't exist
+mkdir -p backend/scripts
+
+# Copy the Python scanner
+cp zap_ai_scanner.py backend/scripts/zap_ai_scanner.py
+
+# Make it executable
+chmod +x backend/scripts/zap_ai_scanner.py
+
+# Verify it's there
+ls -la backend/scripts/zap_ai_scanner.py
+```
+
+**Expected Output:** File should exist at `backend/scripts/zap_ai_scanner.py`
+
+---
+
+### STEP 2: Check Python Dependencies
+```bash
+# Check Python 3 is installed
+python3 --version
+
+# Install requests library if needed
+pip3 install requests --break-system-packages
+
+# Verify requests is installed
+python3 -c "import requests; print('requests library OK')"
+```
+
+**Expected Output:** 
+- Python version 3.x
+- "requests library OK"
+
+---
+
+### STEP 3: Backup Current Files
+```bash
+# Backup existing ZAP service
+cp backend/services/zapService.js backend/services/zapService.js.backup
+
+# Backup existing ZAP routes
+cp backend/routes/zapRoutes.js backend/routes/zapRoutes.js.backup
+
+# Verify backups exist
+ls -la backend/services/zapService.js.backup
+ls -la backend/routes/zapRoutes.js.backup
+```
+
+**Expected Output:** Both backup files should exist
+
+---
+
+### STEP 4: Replace Service and Routes
+```bash
+# Replace zapService.js with enhanced version
+cp enhanced_zapService.js backend/services/zapService.js
+
+# Replace zapRoutes.js with enhanced version
+cp enhanced_zapRoutes.js backend/routes/zapRoutes.js
+
+# Verify files were replaced
+ls -la backend/services/zapService.js
+ls -la backend/routes/zapRoutes.js
+```
+
+**Expected Output:** Files should have recent modification timestamps
+
+---
+
+### STEP 5: Verify Environment Variables
+```bash
+# Check .env file has ZAP configuration
+grep "ZAP_API_URL" backend/.env
+grep "ZAP_API_KEY" backend/.env
+```
+
+**Expected Output:**
+```
+ZAP_API_URL=http://localhost:8080
+ZAP_API_KEY=ssdt-secure-zap-2025
+```
+
+**If not found:** Add these lines to `backend/.env`:
+```env
+ZAP_API_URL=http://localhost:8080
+ZAP_API_KEY=ssdt-secure-zap-2025
+```
+
+---
+
+### STEP 6: Start ZAP Docker Container
+```bash
+# Stop any existing ZAP container
+docker stop zap-scanner 2>/dev/null || true
+docker rm zap-scanner 2>/dev/null || true
+
+# Start ZAP with optimal settings
+docker run -d --name zap-scanner \
+  -p 8080:8080 \
+  --memory=8g \
+  --memory-swap=10g \
+  --cpus=4 \
+  zaproxy/zap-stable \
+  zap.sh -daemon -host 0.0.0.0 -port 8080 \
+  -config api.disablekey=true \
+  -config spider.maxDepth=20 \
+  -config spider.maxDuration=120 \
+  -config spider.threadCount=10 \
+  -config scanner.threadPerHost=10 \
+  -config scanner.hostPerScan=10
+
+# Verify container is running
+docker ps | grep zap-scanner
+```
+
+⚠️ **MEMORY:** 8GB allocated for large scans (10K-15K URLs)
+   - For scans >15K URLs: Use --memory=10g or --memory=12g
+   - Monitor: docker stats zap-scanner --no-stream
+
+**Expected Output:** Container named `zap-scanner` should be running
+
+---
+
+### STEP 7: Wait for ZAP to Initialize
+```bash
+# ZAP takes 30-60 seconds to fully start
+echo "Waiting for ZAP to initialize..."
+sleep 60
+
+# Test ZAP is ready
+curl -s http://localhost:8080/JSON/core/view/version/
+```
+
+**Expected Output:** JSON response with ZAP version like `{"version":"2.XX.X"}`
+
+**If fails:** Wait another 30 seconds and try again
+
+---
+
+### STEP 8: Restart Backend Server
+```bash
+# Navigate to backend directory
+cd backend
+
+# Kill any running backend process
+pkill -f "node.*server.js" || true
+
+# Start backend
+npm run dev
+```
+
+**Expected Output:** Server should start without errors and show:
+```
+🚀 Server started successfully!
+📡 Listening on port 3001
+```
+
+---
+
+### STEP 9: Test Integration
+
+#### Test 1: Health Check
+```bash
+curl http://localhost:3001/api/zap/health
+```
+
+**Expected Output:**
+```json
+{
+  "success": true,
+  "status": "healthy",
+  "version": "2.XX.X",
+  "message": "ZAP service is running and accessible"
+}
+```
+
+#### Test 2: Scanner Info
+```bash
+curl http://localhost:3001/api/zap/info
+```
+
+**Expected Output:** JSON with scanner capabilities and documentation
+
+#### Test 3: Start a Scan (Requires Auth Token)
+```bash
+# First, get auth token (replace with actual user credentials)
+TOKEN=$(curl -X POST http://localhost:3001/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"password123"}' \
+  | jq -r '.token')
+
+# Start scan
+curl -X POST http://localhost:3001/api/zap/scan \
+  -H "Content-Type: application/json" \
+  -H "x-auth-token: $TOKEN" \
+  -d '{"url":"https://example.com","quickMode":true}'
+```
+
+**Expected Output:**
+```json
+{
+  "success": true,
+  "message": "ZAP scan initiated",
+  "scanId": "zap-1736089234567-abc123",
+  "analysisId": "zap-1736089234567-abc123",
+  "target": "https://example.com",
+  "scanMode": "quick",
+  "estimatedTime": "5-15 minutes"
+}
+```
+
+#### Test 4: Check Scan Status
+```bash
+# Replace SCAN_ID with actual scan ID from previous step
+SCAN_ID="zap-1736089234567-abc123"
+
+curl http://localhost:3001/api/zap/status/$SCAN_ID \
+  -H "x-auth-token: $TOKEN"
+```
+
+**Expected Output:** JSON with scan progress and results
+
+---
+
+### STEP 10: Verify Database Integration
+```bash
+# Check MongoDB for scan records
+mongosh <<EOF
+use virustotal-scanner
+db.scanresults.find({ "zapResult": { "\$exists": true } }).count()
+EOF
+```
+
+**Expected Output:** Count of scans with ZAP results
+
+---
+
+## ✅ Success Criteria
+
+After completing all steps, verify:
+
+1. ✅ ZAP Docker container is running
+2. ✅ Health check returns healthy status
+3. ✅ Info endpoint returns scanner details
+4. ✅ Can start a scan (returns scan ID)
+5. ✅ Can check scan status (returns progress)
+6. ✅ Scans are saved in MongoDB
+7. ✅ Backend server runs without errors
+
+---
+
+## 🔧 Troubleshooting
+
+### Problem: "ZAP service is not available"
+```bash
+# Check if container is running
+docker ps | grep zap-scanner
+
+# Check container logs
+docker logs zap-scanner
+
+# Restart container
+docker restart zap-scanner
+sleep 60
+```
+
+### Problem: "Python script not found"
+```bash
+# Verify script location
+ls -la backend/scripts/zap_ai_scanner.py
+
+# If missing, copy again
+cp zap_ai_scanner.py backend/scripts/zap_ai_scanner.py
+chmod +x backend/scripts/zap_ai_scanner.py
+```
+
+### Problem: "Module 'requests' not found"
+```bash
+# Install requests library
+pip3 install requests --break-system-packages
+
+# Verify installation
+python3 -c "import requests; print('OK')"
+```
+
+### Problem: "Cannot connect to MongoDB"
+```bash
+# Check MongoDB is running
+mongosh --eval "db.adminCommand('ping')"
+
+# Check MONGO_URI in .env
+grep MONGO_URI backend/.env
+```
+
+### Problem: "Port 8080 already in use"
+```bash
+# Find what's using port 8080
+lsof -i :8080
+
+# Kill the process or change ZAP port in .env
+```
+
+---
+
+## 📊 Expected Performance
+
+### Quick Scan Mode (quickMode: true)
+- **Time:** 5-15 minutes
+- **Depth:** 10 levels
+- **Best for:** Quick checks, CI/CD
+
+### Full Scan Mode (quickMode: false)
+- **Time:** 15-60 minutes
+- **Depth:** 20 levels
+- **Best for:** Comprehensive audits
+
+### Typical Results
+- **URLs Found:** 50-2000+ (depends on target)
+- **Alerts:** 0-200+ (depends on security)
+- **Phases:** 5 (spider, ajax-spider, passive, active, reporting)
+
+---
+
+## 🔐 Security Notes
+
+1. **Authentication Required:** All scan endpoints require valid JWT token
+2. **Rate Limited:** 20 scans per 10 minutes per user
+3. **User Isolation:** Users can only access their own scans
+4. **MongoDB Tracking:** All scans are logged and auditable
+
+---
+
+## 📖 API Endpoints
+
+### Public Endpoints
+- `GET /api/zap/health` - Check ZAP service health
+- `GET /api/zap/info` - Get scanner information
+
+### Protected Endpoints (Require Auth Token)
+- `POST /api/zap/scan` - Start a new scan
+- `GET /api/zap/status/:scanId` - Check scan progress
+- `GET /api/zap/scans` - Get scan history
+
+---
+
+## 🎯 AI Agent Final Checklist
+
+Before marking this task as complete, verify:
+
+- [ ] Python script deployed to `backend/scripts/zap_ai_scanner.py`
+- [ ] Service file replaced: `backend/services/zapService.js`
+- [ ] Routes file replaced: `backend/routes/zapRoutes.js`
+- [ ] ZAP Docker container running on port 8080
+- [ ] Backend server restarted successfully
+- [ ] Health check returns `{"success": true, "status": "healthy"}`
+- [ ] Test scan initiated successfully
+- [ ] Scan status can be retrieved
+- [ ] MongoDB contains scan records
+- [ ] No errors in backend logs
+
+---
+
+## 📝 Integration Summary
+
+**What was integrated:**
+- OWASP ZAP maximum performance scanner
+- Python automation script with 5-phase scanning
+- Async scan execution (non-blocking API)
+- Real-time progress tracking
+- MongoDB integration for scan history
+- Protected API endpoints with authentication
+- Rate limiting to prevent abuse
+
+**Key features:**
+- Traditional spider (crawls static links)
+- AJAX spider (executes JavaScript)
+- Passive scanning (analyzes traffic)
+- Active scanning (vulnerability testing)
+- Comprehensive reporting
+
+**Usage:**
+1. User authenticates and gets JWT token
+2. User submits target URL via POST /api/zap/scan
+3. Backend starts scan asynchronously and returns scan ID
+4. User polls GET /api/zap/status/:scanId for progress
+5. When complete, full results are available in response
+
+---
+
+## 🚀 Next Steps (Optional)
+
+After successful integration:
+
+1. **Frontend Integration:** Create UI for ZAP scanning
+2. **Result Visualization:** Display alerts with charts
+3. **Email Notifications:** Alert users when scans complete
+4. **Scheduled Scans:** Add cron jobs for recurring scans
+5. **Comparison Reports:** Compare scans over time
+
+---
+
+## ✨ Done!
+
+The ZAP maximum performance scanner is now fully integrated into your SSDT backend. Users can now perform comprehensive web application security scans through your API!
+
+For detailed documentation, refer to `ZAP_INTEGRATION_GUIDE.md`.

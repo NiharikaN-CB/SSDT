@@ -1,0 +1,47 @@
+# ZAP Scanner Docker Compose Configuration
+# Memory: 8GB (handles scans up to 15,000 URLs)
+# Usage: docker-compose -f docker-compose.zap.yml up -d
+
+version: '3.8'
+
+services:
+  zap-scanner:
+    image: zaproxy/zap-stable
+    container_name: zap-scanner
+    command: >
+      zap.sh -daemon -host 0.0.0.0 -port 8080
+      -config api.disablekey=true
+      -config spider.maxDepth=20
+      -config spider.maxDuration=120
+      -config spider.threadCount=10
+      -config scanner.threadPerHost=10
+      -config scanner.hostPerScan=10
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4'
+        reservations:
+          memory: 2G
+          cpus: '2'
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - zap-network
+
+networks:
+  zap-network:
+    driver: bridge
+    name: zap-network
+
+# To start: docker-compose -f docker-compose.zap.yml up -d
+# To stop: docker-compose -f docker-compose.zap.yml down
+# To view logs: docker-compose -f docker-compose.zap.yml logs -f
+# To restart: docker-compose -f docker-compose.zap.yml restart

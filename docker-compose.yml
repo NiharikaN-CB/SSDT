@@ -11,8 +11,8 @@ services:
     restart: always
     ports:
       - "8080:8080"
-    mem_limit: 4g
-    cpus: 2
+    mem_limit: 8g
+    cpus: 6
     command:
       - "zap.sh"
       - "-daemon"
