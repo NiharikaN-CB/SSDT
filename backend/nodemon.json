@@ -1,0 +1,19 @@
+{
+    "watch": [
+        "*.js",
+        "routes/",
+        "services/",
+        "models/",
+        "middleware/"
+    ],
+    "ignore": [
+        "node_modules/",
+        "zap-report*.html",
+        "zap-report*.json",
+        "zap-report*.xml",
+        "*.log",
+        "reports/"
+    ],
+    "ext": "js,json",
+    "delay": "500"
+}

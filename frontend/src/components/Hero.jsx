@@ -416,7 +416,7 @@ const Hero = () => {
           marginBottom: '2rem'
         }}>
           {/* Security (VirusTotal) */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasVtResult ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🛡️ Security</h4>
             {report?.hasVtResult ? (
               <>
@@ -432,7 +432,7 @@ const Hero = () => {
           </div>
 
           {/* ⚡ OWASP ZAP Score Card - Now uses backend data */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasZapResult ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>⚡ OWASP ZAP</h4>
             {report?.hasZapResult && backendZapData ? (
               <>
@@ -450,7 +450,7 @@ const Hero = () => {
           </div>
 
           {/* Performance (PSI) */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasPsiResult ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>⚡ Performance</h4>
             {psiScores?.performance != null ? (
               <>
@@ -468,7 +468,7 @@ const Hero = () => {
 
 
           {/* Security Config (Observatory) */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasObservatoryResult ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔒 Security Config</h4>
             {observatoryData?.grade ? (
               <>
@@ -484,7 +484,7 @@ const Hero = () => {
           </div>
 
           {/* 🔍 URLScan.io Security Verdict */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasUrlscanResult ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🌐 URLScan.io</h4>
             {report?.hasUrlscanResult && report?.urlscanData ? (
               <>
@@ -510,7 +510,7 @@ const Hero = () => {
           </div>
 
           {/* 🔍 WebCheck: SSL Certificate */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔐 SSL Certificate</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -520,12 +520,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.ssl.issuer?.O || 'Unknown Issuer'}</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>{webCheckError ? 'Failed' : 'Pending'}</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{webCheckError ? 'Failed' : (report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending')}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Security Headers */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🛡️ Security Headers</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -540,12 +540,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Headers Present</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Tech Stack */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🛠️ Tech Stack</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -566,13 +566,13 @@ const Hero = () => {
               } else if (techData && !techData.error) {
                 return <div style={{ color: '#888', marginTop: '10px' }}>No technologies detected</div>;
               } else {
-                return <div style={{ color: '#888', marginTop: '10px' }}>{techData?.error ? 'Scan Failed' : 'Pending'}</div>;
+                return <div style={{ color: '#888', marginTop: '10px' }}>{techData?.error ? 'Scan Failed' : (report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending')}</div>;
               }
             })()}
           </div>
 
           {/* 🔍 WebCheck: Firewall/WAF */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔥 Firewall</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -584,12 +584,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>WAF Status</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: TLS Grade */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔒 TLS Grade</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -601,12 +601,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Score: {webCheckReport.tls.tlsInfo?.score || 0}/100</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Quality (PageSpeed) */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📊 Quality</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -623,12 +623,12 @@ const Hero = () => {
                 );
               })()
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Mail Config */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📧 Mail Config</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -642,12 +642,12 @@ const Hero = () => {
             ) : webCheckReport?.['mail-config']?.skipped ? (
               <div style={{ color: '#888', marginTop: '10px' }}>No Mail Server</div>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: WHOIS */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📋 WHOIS</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -659,12 +659,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Domain Registered</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: HSTS */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔐 HSTS</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -676,12 +676,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.hsts.hstsPreloaded ? 'Preloaded' : 'Not Preloaded'}</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Block Lists */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🚫 Block Lists</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -699,12 +699,12 @@ const Hero = () => {
                 );
               })()
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Carbon Footprint */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🌱 Carbon</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -716,12 +716,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.carbon.co2?.grid?.grams ? `${webCheckReport.carbon.co2.grid.grams.toFixed(2)}g CO2` : 'Hosting'}</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Archives */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📚 Archives</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -737,12 +737,12 @@ const Hero = () => {
             ) : webCheckReport?.archives?.error ? (
               <div style={{ color: '#ffb900', marginTop: '10px' }}>Timeout</div>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Sitemap */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🗺️ Sitemap</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -758,12 +758,12 @@ const Hero = () => {
             ) : webCheckReport?.sitemap ? (
               <div style={{ color: '#00d084', marginTop: '10px' }}>Found</div>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Social Tags */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📱 Social Tags</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -782,12 +782,12 @@ const Hero = () => {
                 );
               })()
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Linked Pages */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔗 Links</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -799,12 +799,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Links Found</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Redirects */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>↪️ Redirects</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -816,12 +816,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Redirect Hops</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: DNS Server */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🌐 DNS Server</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -833,12 +833,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Servers Found</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: DNSSEC */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🔑 DNSSEC</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -850,12 +850,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>DNSSEC Status</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Security.txt */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📄 Security.txt</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -867,12 +867,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Security Policy</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Robots.txt */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🤖 Robots.txt</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -884,12 +884,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Crawler Rules</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Status */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>🟢 Status</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -901,12 +901,12 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>{webCheckReport.status.responseTime ? `${webCheckReport.status.responseTime}ms` : 'HTTP Status'}</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
 
           {/* 🔍 WebCheck: Legacy Rank */}
-          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: webCheckLoading ? '1px dashed var(--accent)' : 'none' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: '1px solid var(--accent)' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>📈 Rank</h4>
             {webCheckLoading ? (
               <div style={{ color: 'var(--accent)', fontSize: '1rem', marginTop: '10px' }}>Scanning...</div>
@@ -918,7 +918,7 @@ const Hero = () => {
                 <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Global Rank</p>
               </>
             ) : (
-              <div style={{ color: '#888', marginTop: '10px' }}>Pending</div>
+              <div style={{ color: '#888', marginTop: '10px' }}>{report?.status === 'completed' && !webCheckLoading ? 'Unavailable' : 'Pending'}</div>
             )}
           </div>
         </div>
@@ -981,6 +981,83 @@ const Hero = () => {
                 </tbody>
               </table>
             )}
+          </details>
+        )}
+
+        {/* 🌐 URLScan.io Detailed Results */}
+        {report?.urlscanData && !report?.urlscanResult?.error && (
+          <details style={{ marginBottom: '2rem' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 'bold', padding: '1rem', background: 'var(--card-bg)', borderRadius: '8px', border: '1px solid #00d084' }}>
+              🌐 View URLScan.io Analysis
+            </summary>
+            <div style={{ marginTop: '1rem', display: 'grid', gap: '1rem' }}>
+              {/* Page Info */}
+              <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📄 Page Information</h5>
+                <p><b>Domain:</b> {report.urlscanData.page?.domain || 'N/A'}</p>
+                <p><b>IP Address:</b> {report.urlscanData.page?.ip || 'N/A'}</p>
+                <p><b>Country:</b> {report.urlscanData.page?.country || 'N/A'}</p>
+                <p><b>Server:</b> {report.urlscanData.page?.server || 'N/A'}</p>
+                <p><b>TLS Issuer:</b> {report.urlscanData.page?.tlsIssuer || 'N/A'}</p>
+              </div>
+
+              {/* Verdicts */}
+              <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🛡️ Security Verdicts</h5>
+                <p><b>Overall:</b> <span style={{ color: report.urlscanData.verdicts?.overall?.malicious ? '#e81123' : '#00d084', fontWeight: 'bold' }}>
+                  {report.urlscanData.verdicts?.overall?.malicious ? '⚠️ MALICIOUS' : '✅ CLEAN'}
+                </span></p>
+                <p><b>Threat Score:</b> {report.urlscanData.verdicts?.overall?.score || 0}</p>
+                {report.urlscanData.verdicts?.urlscan?.score > 0 && (
+                  <p><b>URLScan Score:</b> {report.urlscanData.verdicts.urlscan.score}</p>
+                )}
+              </div>
+
+              {/* Stats */}
+              <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📊 Scan Statistics</h5>
+                <p><b>Unique IPs:</b> {report.urlscanData.stats?.uniqIPs || 0}</p>
+                <p><b>Unique Countries:</b> {report.urlscanData.stats?.uniqCountries || 0}</p>
+                <p><b>HTTP Requests:</b> {report.urlscanData.stats?.requests || 0}</p>
+                <p><b>Data Transferred:</b> {((report.urlscanData.stats?.dataLength || 0) / 1024).toFixed(2)} KB</p>
+              </div>
+
+              {/* IPs and Countries */}
+              {report.urlscanData.lists?.ips?.length > 0 && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🌍 Connected IPs ({report.urlscanData.lists.ips.length})</h5>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
+                    {report.urlscanData.lists.ips.map((ip, idx) => (
+                      <span key={idx} style={{ background: '#333', padding: '0.25rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem' }}>{ip}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* URLs */}
+              {report.urlscanData.lists?.urls?.length > 0 && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🔗 URLs Requested ({report.urlscanData.lists.urls.length})</h5>
+                  <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                    {report.urlscanData.lists.urls.map((url, idx) => (
+                      <p key={idx} style={{ fontSize: '0.75rem', wordBreak: 'break-all', marginBottom: '0.25rem', color: '#aaa' }}>
+                        • {url}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Report Link */}
+              {report.urlscanData.reportUrl && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                  <a href={report.urlscanData.reportUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ color: 'var(--accent)', fontWeight: 'bold' }}>
+                    🔗 View Full URLScan.io Report ↗
+                  </a>
+                </div>
+              )}
+            </div>
           </details>
         )}
 
@@ -1058,9 +1135,57 @@ const Hero = () => {
               {/* Cookies */}
               {webCheckReport.cookies && !webCheckReport.cookies.error && !webCheckReport.cookies.skipped && (
                 <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
-                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🍪 Cookies</h5>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🍪 Cookies ({(webCheckReport.cookies.headerCookies?.length || 0) + (webCheckReport.cookies.clientCookies?.length || 0)} total)</h5>
                   <p><b>Header Cookies:</b> {webCheckReport.cookies.headerCookies?.length || 0}</p>
-                  <p><b>Client Cookies:</b> {webCheckReport.cookies.clientCookies?.length || 0}</p>
+                  <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                    {webCheckReport.cookies.headerCookies?.map((cookie, idx) => (
+                      <p key={idx} style={{ fontSize: '0.8rem', marginLeft: '1rem', color: '#888' }}>
+                        • {typeof cookie === 'object' ? (cookie.name || cookie.key || JSON.stringify(cookie)) : String(cookie)}
+                      </p>
+                    ))}
+                  </div>
+                  <p style={{ marginTop: '0.5rem' }}><b>Client Cookies:</b> {webCheckReport.cookies.clientCookies?.length || 0}</p>
+                  <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                    {webCheckReport.cookies.clientCookies?.map((cookie, idx) => (
+                      <p key={idx} style={{ fontSize: '0.8rem', marginLeft: '1rem', color: '#888' }}>
+                        • {typeof cookie === 'object' ? (cookie.name || cookie.key || JSON.stringify(cookie)) : String(cookie)}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Linked Pages / External Links */}
+              {webCheckReport['linked-pages'] && !webCheckReport['linked-pages'].error && (
+                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🔗 Internal Links ({webCheckReport['linked-pages'].internal?.length || webCheckReport['linked-pages'].length || 0} found)</h5>
+                  <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                    {(() => {
+                      const links = webCheckReport['linked-pages'].internal || webCheckReport['linked-pages'].links ||
+                        (Array.isArray(webCheckReport['linked-pages']) ? webCheckReport['linked-pages'] : []);
+                      return links.map((link, idx) => (
+                        <p key={idx} style={{ fontSize: '0.8rem', wordBreak: 'break-all', marginBottom: '0.25rem' }}>
+                          • <a href={typeof link === 'object' ? link.href || link.url : link} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+                            {typeof link === 'object' ? link.href || link.url || link.text : link}
+                          </a>
+                        </p>
+                      ));
+                    })()}
+                  </div>
+                  {webCheckReport['linked-pages'].external?.length > 0 && (
+                    <>
+                      <h5 style={{ margin: '1rem 0 0.5rem 0', color: 'var(--accent)' }}>🌐 External Links ({webCheckReport['linked-pages'].external.length})</h5>
+                      <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                        {webCheckReport['linked-pages'].external.map((link, idx) => (
+                          <p key={idx} style={{ fontSize: '0.8rem', wordBreak: 'break-all', marginBottom: '0.25rem' }}>
+                            • <a href={typeof link === 'object' ? link.href || link.url : link} target="_blank" rel="noopener noreferrer" style={{ color: '#ffb900' }}>
+                              {typeof link === 'object' ? link.href || link.url : link}
+                            </a>
+                          </p>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1113,11 +1238,19 @@ const Hero = () => {
               {webCheckReport.redirects && !webCheckReport.redirects.error && webCheckReport.redirects.redirects?.length > 0 && (
                 <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>↪️ Redirect Chain</h5>
-                  {webCheckReport.redirects.redirects.map((redirect, idx) => (
-                    <p key={idx} style={{ fontSize: '0.85rem' }}>
-                      {idx + 1}. {redirect.statusCode} → {redirect.url?.substring(0, 50)}...
-                    </p>
-                  ))}
+                  {webCheckReport.redirects.redirects.map((redirect, idx) => {
+                    // Handle both old format (string) and new format (object with statusCode and url)
+                    const isObject = typeof redirect === 'object' && redirect !== null;
+                    const statusCode = isObject ? redirect.statusCode : null;
+                    const url = isObject ? redirect.url : redirect;
+                    const displayUrl = url ? (url.length > 100 ? url.substring(0, 100) + '...' : url) : 'N/A';
+
+                    return (
+                      <p key={idx} style={{ fontSize: '0.85rem', wordBreak: 'break-all' }}>
+                        {idx + 1}. {statusCode ? `${statusCode} → ` : ''}{displayUrl}
+                      </p>
+                    );
+                  })}
                 </div>
               )}
 
