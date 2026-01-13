@@ -15,6 +15,16 @@
   --header-height: 4rem;
   --section-padding: 2rem;
   --max-width: 1200px;
+
+  /* Card Styling Variables */
+  --card-border: 2px solid var(--accent);
+  --card-border-radius: 12px;
+  --card-padding: 1.5rem;
+  --card-shadow: 0 4px 12px rgba(0, 176, 198, 0.15);
+  --card-shadow-hover: 0 8px 24px rgba(0, 176, 198, 0.25);
+  --card-glow: 0 0 20px rgba(0, 176, 198, 0.2);
+  --card-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --card-bg-hover: #222847;
 }
 
 /* Dark Theme Variables */

@@ -3,10 +3,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 var(--section-padding);
+  padding: 0 2rem;
   border-bottom: 1px solid var(--outline);
   background-color: var(--background);
-  transition: background-color 0.3s, border-color 0.3s;
+  position: relative;
+  z-index: 1000;
 
   .logo-container {
     display: flex;
@@ -14,24 +15,19 @@
     gap: 0.75rem;
     text-decoration: none;
     cursor: pointer;
-    transition: opacity 0.2s ease-in-out;
-
-    &:hover {
-      opacity: 0.8;
-    }
 
     .logo {
-      height: 2rem;
-      width: 2rem;
+      height: 2.2rem;
+      width: 2.2rem;
     }
 
     h1 {
-      font-size: 1.5rem;
+      font-size: 1.6rem;
       font-family: var(--font-mono);
-      font-weight: 600;
+      font-weight: 700;
       margin: 0;
       color: var(--foreground);
-      transition: color 0.3s;
+      letter-spacing: -0.5px;
     }
   }
 
@@ -41,36 +37,22 @@
     gap: 1.5rem;
   }
 
-  .github-link {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    color: var(--foreground-darker);
-    font-family: var(--font-mono);
-    text-decoration: none;
-    transition: color 0.2s ease-in-out;
-
-    &:hover {
-      color: var(--foreground);
-    }
-  }
-
   .signup-button {
-    background-color: var(--accent);
+    background: var(--accent);
     color: var(--background);
-    padding: 0.5rem 1rem;
-    border-radius: 5px;
-    font-size: 0.9rem;
-    font-weight: 600;
+    padding: 0.6rem 1.25rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 700;
     text-decoration: none;
     border: none;
     cursor: pointer;
     font-family: var(--font-sans);
-    transition: background-color 0.2s ease-in-out;
+    transition: background 0.2s;
     display: inline-block;
 
     &:hover {
-      background-color: var(--accent-dark);
+      background: var(--accent-light);
       text-decoration: none;
     }
   }
@@ -79,21 +61,50 @@
   .logout-button {
     background-color: transparent;
     color: var(--accent);
-    padding: 0.5rem 1rem;
-    border-radius: 5px;
-    font-size: 0.9rem;
+    padding: 0.6rem 1.25rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
     font-weight: 600;
     text-decoration: none;
-    border: 2px solid var(--accent);
+    border: 1px solid var(--accent);
     cursor: pointer;
     font-family: var(--font-sans);
-    transition: all 0.2s ease-in-out;
-    display: inline-block;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
 
     &:hover {
       background-color: var(--accent);
       color: var(--background);
       text-decoration: none;
     }
+  }
+
+  .pro-badge-header {
+    background: linear-gradient(135deg, #FF00FF 0%, #00FFFF 100%);
+    color: #fff;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 8px rgba(255, 0, 255, 0.4);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    animation: badge-pulse 3s infinite;
+  }
+}
+
+@keyframes badge-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 0, 255, 0.4);
+  }
+
+  70% {
+    box-shadow: 0 0 0 6px rgba(255, 0, 255, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 0, 255, 0);
   }
 }

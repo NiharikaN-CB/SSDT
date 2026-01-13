@@ -8,159 +8,109 @@ const ParticleBackground = () => {
 
   useEffect(() => {
     const canvas = canvasRef.current;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    
-    // Set canvas to viewport size, not page size
-    const setCanvasSize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-    
-    setCanvasSize();
+    if (!ctx) return;
 
-    let particlesArray;
+    let animationFrameId;
+    let mouse = { x: -100, y: -100 };
 
-    const mouse = {
-      x: null,
-      y: null,
-      radius: 100 // Fixed radius instead of calculated
+    const resize = () => {
+      // High DPI support - render at device pixel ratio for crisp graphics
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      ctx.scale(dpr, dpr);
     };
 
-    let lastMouseX = null;
-    let lastMouseY = null;
-    
-    const handleMouseMove = (event) => {
-      // Only update if mouse moved at least 20 pixels
-      if (!lastMouseX || !lastMouseY || 
-          Math.abs(event.clientX - lastMouseX) > 20 || 
-          Math.abs(event.clientY - lastMouseY) > 20) {
-        mouse.x = event.clientX;
-        mouse.y = event.clientY;
-        lastMouseX = event.clientX;
-        lastMouseY = event.clientY;
-      }
+    const handleMouseMove = (e) => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
     };
 
+    window.addEventListener('resize', resize);
     window.addEventListener('mousemove', handleMouseMove);
+    resize();
 
     class Particle {
-      constructor(x, y, directionX, directionY, size) {
+      constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.directionX = directionX;
-        this.directionY = directionY;
-        this.size = size;
+        this.baseX = x;
+        this.baseY = y;
+        this.density = (Math.random() * 30) + 1;
       }
 
       draw() {
+        // Use darker colors based on theme - sharp and crisp
+        const isDarkMode = document.body.classList.contains('dark');
+        let color, alpha;
+
+        if (isPro) {
+          // Purple for PRO
+          color = isDarkMode ? '#c084fc' : '#a855f7';
+          alpha = isDarkMode ? 0.8 : 0.6;
+        } else {
+          // Cyan for default - darker for light theme
+          color = isDarkMode ? '#00b0c6' : '#005f73';
+          alpha = isDarkMode ? 0.8 : 0.7;
+        }
+
+        ctx.fillStyle = `rgba(${parseInt(color.slice(1, 3), 16)}, ${parseInt(color.slice(3, 5), 16)}, ${parseInt(color.slice(5, 7), 16)}, ${alpha})`;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2, false);
-        ctx.fillStyle = isPro ? '#c084fc' : '#00b0c6';
+        ctx.arc(this.x, this.y, 2, 0, Math.PI * 2); // Smaller, sharper particles
         ctx.fill();
       }
 
       update() {
-        // Bounce off walls
-        if (this.x > canvas.width || this.x < 0) {
-          this.directionX = -this.directionX;
-        }
-        if (this.y > canvas.height || this.y < 0) {
-          this.directionY = -this.directionY;
-        }
+        const dx = mouse.x - this.x;
+        const dy = mouse.y - this.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const maxDistance = 100;
 
-        // Mouse interaction - gentle repulsion
-        let dx = mouse.x - this.x;
-        let dy = mouse.y - this.y;
-        let distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance < mouse.radius + this.size) {
-          // Gentle push away from mouse
-          if (mouse.x < this.x && this.x < canvas.width - this.size * 10) {
-            this.x += 2;
-          }
-          if (mouse.x > this.x && this.x > this.size * 10) {
-            this.x -= 2;
-          }
-          if (mouse.y < this.y && this.y < canvas.height - this.size * 10) {
-            this.y += 2;
-          }
-          if (mouse.y > this.y && this.y > this.size * 10) {
-            this.y -= 2;
-          }
-        }
-        
-        // Move particle
-        this.x += this.directionX;
-        this.y += this.directionY;
-        
-        this.draw();
-      }
-    }
-
-    function init() {
-      particlesArray = [];
-      // Calculate number based on viewport area
-      let numberOfParticles = Math.floor((canvas.height * canvas.width) / 15000);
-      
-      for (let i = 0; i < numberOfParticles; i++) {
-        let size = (Math.random() * 3) + 1;
-        let x = Math.random() * (canvas.width - size * 2) + size;
-        let y = Math.random() * (canvas.height - size * 2) + size;
-        let directionX = (Math.random() * 1.5) - 0.75; // Slower movement
-        let directionY = (Math.random() * 1.5) - 0.75;
-
-        particlesArray.push(new Particle(x, y, directionX, directionY, size));
-      }
-    }
-
-    function animate() {
-      requestAnimationFrame(animate);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      for (let i = 0; i < particlesArray.length; i++) {
-        particlesArray[i].update();
-      }
-      connect();
-    }
-    
-    function connect() {
-      for (let a = 0; a < particlesArray.length; a++) {
-        for (let b = a + 1; b < particlesArray.length; b++) {
-          let dx = particlesArray[a].x - particlesArray[b].x;
-          let dy = particlesArray[a].y - particlesArray[b].y;
-          let distance = Math.sqrt(dx * dx + dy * dy);
-          
-          // Draw lines between nearby particles
-          if (distance < 120) { // Fixed distance
-            let opacity = 1 - (distance / 120);
-            // Purple for pro users: rgba(192, 132, 252, opacity), Cyan for regular users
-            ctx.strokeStyle = isPro
-              ? `rgba(192, 132, 252, ${opacity * 0.5})`
-              : `rgba(0, 176, 198, ${opacity * 0.5})`;
-            ctx.lineWidth = 0.7;
-            ctx.beginPath();
-            ctx.moveTo(particlesArray[a].x, particlesArray[a].y);
-            ctx.lineTo(particlesArray[b].x, particlesArray[b].y);
-            ctx.stroke();
-          }
+        if (distance < maxDistance) {
+          const force = (maxDistance - distance) / maxDistance;
+          this.x -= (dx / distance) * force * this.density;
+          this.y -= (dy / distance) * force * this.density;
+        } else {
+          // Smoothly return to base position
+          this.x -= (this.x - this.baseX) / 10;
+          this.y -= (this.y - this.baseY) / 10;
         }
       }
     }
 
-    const handleResize = () => {
-      setCanvasSize();
-      init();
+    const particles = [];
+
+    const init = () => {
+      particles.length = 0;
+      const spacing = 45;
+      for (let y = 0; y < canvas.height; y += spacing) {
+        for (let x = 0; x < canvas.width; x += spacing) {
+          particles.push(new Particle(x, y));
+        }
+      }
     };
 
-    window.addEventListener('resize', handleResize);
-    
     init();
+
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach(p => {
+        p.update();
+        p.draw();
+      });
+      animationFrameId = requestAnimationFrame(animate);
+    };
+
     animate();
 
-    // Cleanup
     return () => {
+      window.removeEventListener('resize', resize);
       window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('resize', handleResize);
+      cancelAnimationFrame(animationFrameId);
     };
   }, [isPro]);
 
