@@ -262,11 +262,19 @@ const Hero = () => {
             const hasPsi = analysisData.hasPsiResult;
             const hasObs = analysisData.hasObservatoryResult;
             const hasZap = analysisData.hasZapResult;
+            const zapPending = analysisData.zapPending;
             const hasAi = analysisData.hasRefinedReport;
 
             if (!hasVt) statusMessage = '🔍 Running VirusTotal scan...';
-            else if (!hasPsi || !hasObs || !hasZap) statusMessage = '📊 Fetching PageSpeed, Observatory & ZAP...';
-            else if (!hasAi) statusMessage = '🤖 Generating AI report (with ZAP data)...';
+            else if (!hasPsi || !hasObs) statusMessage = '📊 Fetching PageSpeed & Observatory...';
+            else if (zapPending && analysisData.zapData) {
+              // Show ZAP progress
+              const zapPhase = analysisData.zapData.phase || 'scanning';
+              const zapProgress = analysisData.zapData.progress || 0;
+              statusMessage = `⚡ ZAP Security Scan: ${zapPhase} (${zapProgress}%)...`;
+            }
+            else if (!hasZap && !zapPending) statusMessage = '⚡ Starting ZAP security scan...';
+            else if (!hasAi) statusMessage = '🤖 Generating AI report (with all scan data)...';
             else statusMessage = '✅ Finalizing results...';
 
             setLoadingStage(statusMessage);
@@ -343,14 +351,30 @@ const Hero = () => {
       }
     };
 
-    // ⚡ ZAP Helpers - Now using backend zapData
+    // ⚡ ZAP Helpers - Now using backend zapData with status support
     let zapRiskLabel = "Passed";
     let zapRiskColor = "#00d084";
+    let zapPendingMessage = null;
+
     const backendZapData = report?.zapData;
-    if (backendZapData && backendZapData.riskCounts) {
-      if (backendZapData.riskCounts.High > 0) { zapRiskLabel = "High Risk"; zapRiskColor = "#e81123"; }
-      else if (backendZapData.riskCounts.Medium > 0) { zapRiskLabel = "Medium Risk"; zapRiskColor = "#ff8c00"; }
-      else if (backendZapData.riskCounts.Low > 0) { zapRiskLabel = "Low Risk"; zapRiskColor = "#ffb900"; }
+    if (backendZapData) {
+      if (backendZapData.status === 'pending' || backendZapData.status === 'running') {
+        // ZAP scan in progress
+        zapRiskLabel = "Scanning...";
+        zapRiskColor = "#ffb900";
+        const progress = backendZapData.progress || 0;
+        const phase = backendZapData.phase || 'starting';
+        zapPendingMessage = `${phase}: ${progress}%`;
+      } else if (backendZapData.status === 'completed' && backendZapData.riskCounts) {
+        // ZAP scan complete
+        if (backendZapData.riskCounts.High > 0) { zapRiskLabel = "High Risk"; zapRiskColor = "#e81123"; }
+        else if (backendZapData.riskCounts.Medium > 0) { zapRiskLabel = "Medium Risk"; zapRiskColor = "#ff8c00"; }
+        else if (backendZapData.riskCounts.Low > 0) { zapRiskLabel = "Low Risk"; zapRiskColor = "#ffb900"; }
+      } else if (backendZapData.status === 'failed') {
+        zapRiskLabel = "Failed";
+        zapRiskColor = "#e81123";
+        zapPendingMessage = backendZapData.message || 'Scan failed';
+      }
     }
 
     return (
@@ -432,13 +456,17 @@ const Hero = () => {
             )}
           </div>
 
-          {/* ⚡ OWASP ZAP Score Card - Now uses backend data */}
+          {/* ⚡ OWASP ZAP Score Card - Now uses backend data with async support */}
           <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px', textAlign: 'center', border: !report?.hasZapResult ? '1px dashed var(--accent)' : 'none' }}>
             <h4 style={{ margin: '0 0 0.5rem 0' }}>⚡ OWASP ZAP</h4>
-            {report?.hasZapResult && backendZapData ? (
+            {backendZapData ? (
               <>
                 <span style={{ fontSize: '1.5rem', fontWeight: 'bold', color: zapRiskColor }}>{zapRiskLabel}</span>
-                <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>{backendZapData.alerts ? backendZapData.alerts.length : 0} Alerts</p>
+                {zapPendingMessage ? (
+                  <p style={{ fontSize: '0.85rem', marginTop: '0.5rem', color: '#ffb900' }}>{zapPendingMessage}</p>
+                ) : backendZapData.status === 'completed' ? (
+                  <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>{backendZapData.alerts ? backendZapData.alerts.length : 0} Alerts</p>
+                ) : null}
               </>
             ) : report?.zapResult?.error || (report?.status === 'completed' && !report?.hasZapResult) ? (
               <div style={{ color: '#ffb900', marginTop: '10px' }}>Unavailable</div>
@@ -954,12 +982,33 @@ const Hero = () => {
           );
         })()}
 
-        {/* ⚡ OWASP ZAP Enhanced Results */}
-        {backendZapData && backendZapData.alerts && (
+        {/* ⚡ OWASP ZAP Enhanced Results - Only show when completed */}
+        {backendZapData && backendZapData.status === 'completed' && backendZapData.alerts && (
           <ZapReportEnhanced
             zapData={backendZapData}
             scanId={report?.scanId || report?.analysisId}
           />
+        )}
+
+        {/* ZAP Pending/Running Status */}
+        {backendZapData && (backendZapData.status === 'pending' || backendZapData.status === 'running') && (
+          <div style={{ padding: '2rem', background: 'var(--card-bg)', borderRadius: '8px', marginBottom: '2rem', textAlign: 'center', border: '1px dashed #ffb900' }}>
+            <h3>⚡ OWASP ZAP Security Scan in Progress</h3>
+            <p style={{ color: '#ffb900', fontSize: '1.2rem', margin: '1rem 0' }}>
+              {backendZapData.phase || 'Scanning'}: {backendZapData.progress || 0}%
+            </p>
+            <p style={{ color: '#888', fontSize: '0.9rem' }}>
+              {backendZapData.message || 'Running comprehensive security tests...'}
+            </p>
+            {backendZapData.urlsFound > 0 && (
+              <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                Found {backendZapData.urlsFound} URLs • {backendZapData.alertsFound || 0} alerts so far
+              </p>
+            )}
+            <p style={{ color: '#666', fontSize: '0.8rem', marginTop: '1rem' }}>
+              This page will automatically update when the scan completes.
+            </p>
+          </div>
         )}
 
         {/* 🔍 WebCheck Detailed Results */}
@@ -1210,6 +1259,69 @@ const Hero = () => {
             </tbody>
           </table>
         </details>
+
+        {/* Download Complete JSON Report Button */}
+        {report?.analysisId && report?.status === 'completed' && (
+          <div style={{
+            marginTop: '2rem',
+            padding: '2rem',
+            background: 'var(--card-bg)',
+            borderRadius: '8px',
+            border: '2px solid var(--accent)',
+            textAlign: 'center'
+          }}>
+            <h4 style={{ margin: '0 0 1rem 0', color: 'var(--accent)' }}>📥 Download Complete Scan Data</h4>
+            <p style={{ marginBottom: '1rem', color: '#888', fontSize: '0.9rem' }}>
+              Download all scan results including VirusTotal, ZAP, PageSpeed, Observatory, URLScan, WebCheck, and AI analysis in JSON format
+            </p>
+            <button
+              onClick={async () => {
+                try {
+                  const token = localStorage.getItem('token');
+                  const response = await fetch(`${API_BASE}/api/vt/download-complete-json/${report.analysisId}`, {
+                    headers: { 'x-auth-token': token }
+                  });
+
+                  if (!response.ok) {
+                    throw new Error('Download failed');
+                  }
+
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `scan_report_${report.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.json`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  document.body.removeChild(a);
+                  console.log('✅ Complete JSON report downloaded');
+                } catch (err) {
+                  console.error('❌ Download failed:', err);
+                  alert('Failed to download report. Please try again.');
+                }
+              }}
+              style={{
+                padding: '1rem 2rem',
+                background: 'var(--accent)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease'
+              }}
+              onMouseEnter={(e) => e.target.style.transform = 'scale(1.05)'}
+              onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
+            >
+              📥 Download Complete JSON Report
+            </button>
+            <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#666' }}>
+              Includes all raw scan data for further analysis
+            </p>
+          </div>
+        )}
       </div>
     );
   };
