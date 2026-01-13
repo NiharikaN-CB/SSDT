@@ -7,6 +7,8 @@ const {
   runZapScanWithDB,
   getZapScanStatus
 } = require('../services/zapService');
+const gridfsService = require('../services/gridfsService');
+const ZapAlert = require('../models/ZapAlert');
 
 /**
  * Enhanced ZAP Routes - Maximum Performance Scanner
@@ -18,7 +20,7 @@ const {
 router.get('/health', async (req, res) => {
   try {
     const health = await checkZapHealth();
-    
+
     if (health.healthy) {
       res.json({
         success: true,
@@ -54,7 +56,7 @@ router.get('/health', async (req, res) => {
 router.post('/scan', auth, scanLimiter, async (req, res) => {
   try {
     const { url, quickMode = false } = req.body;
-    
+
     if (!url) {
       return res.status(400).json({
         success: false,
@@ -86,9 +88,11 @@ router.post('/scan', auth, scanLimiter, async (req, res) => {
       });
     }
 
-    // Start the scan asynchronously and return scan ID immediately
-    // The scan will run in the background and update the database
-    const scanPromise = runZapScanWithDB(url, req.user.id, { quickMode });
+    // Generate scan ID BEFORE starting scan (Issue #10 fix)
+    const scanId = `zap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Start the scan asynchronously with the pre-generated scanId
+    const scanPromise = runZapScanWithDB(url, req.user.id, { quickMode, scanId });
 
     // Don't wait for completion - return scan ID immediately
     scanPromise.then(result => {
@@ -96,9 +100,6 @@ router.post('/scan', auth, scanLimiter, async (req, res) => {
     }).catch(error => {
       console.error(`❌ Scan failed for user ${req.user.id}:`, error.message);
     });
-
-    // Generate scan ID immediately
-    const scanId = `zap-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     res.json({
       success: true,
@@ -143,7 +144,7 @@ router.get('/status/:scanId', auth, async (req, res) => {
 
   } catch (error) {
     console.error('❌ Status retrieval error:', error);
-    
+
     if (error.message.includes('not found') || error.message.includes('access denied')) {
       return res.status(404).json({
         success: false,
@@ -164,7 +165,7 @@ router.get('/status/:scanId', auth, async (req, res) => {
 router.get('/scans', auth, async (req, res) => {
   try {
     const ScanResult = require('../models/ScanResult');
-    
+
     // Find all scans with zapResult for this user
     const scans = await ScanResult.find({
       userId: req.user.id,
@@ -258,6 +259,213 @@ router.get('/info', (req, res) => {
       healthCheck: 'GET /api/zap/health'
     }
   });
+});
+
+// GET /api/zap/scans/:scanId/alerts
+// Get scan alerts with pagination and filtering (Protected)
+router.get('/scans/:scanId/alerts', auth, async (req, res) => {
+  try {
+    const { scanId } = req.params;
+    const {
+      page = 1,
+      limit = 100,
+      risk,  // Filter by risk: High, Medium, Low, Informational
+      search  // Search in alert name or URL
+    } = req.query;
+
+    // Build query
+    const query = { scanId };
+    if (risk) {
+      query.risk = risk;
+    }
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { url: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Get paginated alerts
+    const skip = (page - 1) * limit;
+    const alerts = await ZapAlert
+      .find(query)
+      .sort({ risk: -1, createdAt: -1 })  // High risk first
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await ZapAlert.countDocuments(query);
+
+    res.json({
+      success: true,
+      data: {
+        alerts,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching alerts:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch alerts'
+    });
+  }
+});
+
+// GET /api/zap/scans/:scanId/report/:format
+// Download report file from GridFS (Protected)
+router.get('/scans/:scanId/report/:format', auth, async (req, res) => {
+  try {
+    const { scanId, format } = req.params;
+    const ScanResult = require('../models/ScanResult');
+    const mongoose = require('mongoose'); // Issue #4 fix: Add mongoose import
+
+    // Get scan result and verify ownership
+    const scan = await ScanResult.findOne({
+      analysisId: scanId,
+      userId: req.user.id
+    });
+
+    if (!scan) {
+      return res.status(404).json({
+        success: false,
+        error: 'Scan not found or access denied'
+      });
+    }
+
+    // Find report file ID
+    const reportFile = scan.zapResult?.reportFiles?.find(
+      f => f.format === format
+    );
+
+    if (!reportFile) {
+      return res.status(404).json({
+        success: false,
+        error: `${format.toUpperCase()} report not found`
+      });
+    }
+
+    // Validate ObjectId format (Issue #4 fix)
+    let fileId;
+    try {
+      fileId = new mongoose.Types.ObjectId(reportFile.fileId);
+    } catch (oidError) {
+      console.error('Invalid ObjectId format:', reportFile.fileId);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid report file reference'
+      });
+    }
+
+    // Get file metadata
+    const fileMetadata = await gridfsService.getFileMetadata(fileId);
+    if (!fileMetadata) {
+      return res.status(404).json({
+        success: false,
+        error: 'Report file not found in storage'
+      });
+    }
+
+    // Set appropriate headers
+    const contentTypes = {
+      html: 'text/html',
+      json: 'application/json',
+      xml: 'application/xml'
+    };
+
+    res.set({
+      'Content-Type': contentTypes[format] || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${fileMetadata.filename}"`,
+      'Content-Length': fileMetadata.length
+    });
+
+    // Stream file to response (efficient for large files) with error handling
+    const downloadStream = gridfsService.downloadFileStream(fileId);
+
+    downloadStream.on('error', (streamError) => {
+      console.error('GridFS stream error:', streamError);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to stream report file'
+        });
+      }
+    });
+
+    downloadStream.pipe(res);
+
+  } catch (error) {
+    console.error('Error downloading report:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to download report'
+      });
+    }
+  }
+});
+
+// GET /api/zap/scans/:scanId/alerts/stats
+// Get alert statistics (Protected)
+router.get('/scans/:scanId/alerts/stats', auth, async (req, res) => {
+  try {
+    const { scanId } = req.params;
+
+    const stats = await ZapAlert.aggregate([
+      { $match: { scanId } },
+      {
+        $group: {
+          _id: '$risk',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const breakdown = {
+      High: 0,
+      Medium: 0,
+      Low: 0,
+      Informational: 0
+    };
+
+    stats.forEach(stat => {
+      breakdown[stat._id] = stat.count;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        breakdown,
+        total: Object.values(breakdown).reduce((a, b) => a + b, 0)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching alert stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch statistics'
+    });
+  }
+});
+
+// GET /api/zap/detailed-report/:scanId
+// Download detailed vulnerability report with all URLs (for ZapReportEnhanced component)
+router.get('/detailed-report/:scanId', auth, async (req, res) => {
+  try {
+    const { downloadDetailedReport } = require('../services/zapService');
+    await downloadDetailedReport(req, res);
+  } catch (error) {
+    console.error('Download error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to download detailed report' });
+    }
+  }
 });
 
 module.exports = router;

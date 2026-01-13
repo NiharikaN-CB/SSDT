@@ -6,9 +6,8 @@ const { scanFile, scanUrl, getAnalysis, getFileReport } = require('../services/v
 const { getPageSpeedReport } = require('../services/pagespeedService');
 const { scanHost } = require('../services/observatoryService');
 const { refineReport } = require('../services/geminiService');
-const { runZapScan } = require('../services/zapService');
+const { runZapScan, startAsyncZapScan } = require('../services/zapService');
 const { runUrlScan } = require('../services/urlscanService');
-const { runAllScans: runAllWebCheckScans } = require('../services/webCheckService');
 const ScanResult = require('../models/ScanResult');
 const auth = require('../middleware/auth');
 const { combinedScanLimiter } = require('../middleware/rateLimiter');
@@ -303,28 +302,22 @@ router.post('/combined-url-scan', auth, combinedScanLimiter, async (req, res) =>
     let scan = await ScanResult.findOne({ analysisId: analysisId });
 
     if (scan) {
-      console.log('📝 Existing scan found, checking status...');
+      console.log('📝 Existing scan found - initiating fresh scan...');
 
-      // 🚀 INSTANT CACHE: DISABLED - Always run fresh scans
-      // const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      // if (scan.status === 'completed' && scan.updatedAt > fiveMinutesAgo && scan.refinedReport) {
-      //   console.log('⚡ Returning cached scan results (completed within last 5 minutes)');
-      //   return res.json({
-      //     success: true,
-      //     message: 'Returning cached results',
-      //     analysisId: analysisId,
-      //     url: url,
-      //     cached: true
-      //   });
-      // }
+      // NO CACHING - Always run fresh scans for enterprise clients who pay for real-time data
+      // Delete the old scan and create a new one to ensure fresh results
+      console.log('🗑️  Deleting old scan data to ensure fresh results...');
+      await ScanResult.deleteOne({ analysisId: analysisId });
 
-      scan.userId = req.user.id; // Update owner to current requester
-      scan.updatedAt = Date.now();
-      // Only reset status if it was failed, otherwise keep the history
-      if (scan.status === 'failed') {
-        scan.status = 'queued';
-      }
+      // Create new scan
+      scan = new ScanResult({
+        target: url,
+        analysisId: analysisId,
+        status: 'queued',
+        userId: req.user.id
+      });
       await scan.save();
+      console.log('✅ Fresh scan record created');
     } else {
       console.log('📝 Creating new scan record...');
       scan = new ScanResult({
@@ -404,9 +397,19 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       }
     }
 
-    // STEP B: If VT is complete, check if we need PSI, Observatory, ZAP, urlscan, WebCheck and Gemini
-    // Only run if ANY of these are missing - don't re-run if they exist!
-    if (scan.vtResult && (!scan.pagespeedResult || !scan.observatoryResult || !scan.zapResult || !scan.urlscanResult || !scan.webCheckResult || !scan.refinedReport)) {
+    // STEP B: If VT is complete, check if we need PSI, Observatory, ZAP, urlscan and Gemini
+    // ONLY trigger scans if they haven't been started yet (not just checking for results)
+    const needsScanning = scan.vtResult && (
+      !scan.pagespeedResult ||
+      !scan.observatoryResult ||
+      !scan.urlscanResult ||
+      !scan.refinedReport
+    );
+
+    // Check if ZAP scan needs to be started (only start once)
+    const zapNotStarted = !scan.zapResult || (!scan.zapResult.status && !scan.zapResult.error);
+
+    if (needsScanning || zapNotStarted) {
       console.log('🔄 VT complete. Running PageSpeed, Observatory, ZAP, urlscan and Gemini analysis...');
 
       try {
@@ -414,22 +417,47 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         scan.status = 'combining';
         await scan.save();
 
-        // Run PageSpeed, Observatory, ZAP, urlscan, and WebCheck in parallel for faster execution
-        console.log('🚀 Fetching PageSpeed, Observatory, ZAP, urlscan and WebCheck reports in parallel...');
+        // CRITICAL CHANGE: Run fast scans in parallel, ZAP runs asynchronously
+        // ZAP will update database independently when complete
+        console.log('🚀 Fetching PageSpeed, Observatory and urlscan reports in parallel...');
+        console.log('🚀 Starting ZAP scan asynchronously in background...');
 
         // Extract hostname for Observatory
         const hostname = new URL(scan.target).hostname;
         console.log(`🔍 Scanning hostname: ${hostname}`);
 
-        // Execute all API calls in parallel using Promise.allSettled
-        // This allows independent error handling for each service
-        const [psiResult, obsResult, zapResult, urlscanResult, webCheckResult] = await Promise.allSettled([
-          getPageSpeedReport(scan.target),
-          scanHost(hostname),
-          runZapScan(scan.target),
-          runUrlScan(scan.target),
-          runAllWebCheckScans(scan.target)
-        ]);
+        // Execute fast scans in parallel, start ZAP asynchronously ONLY if needed
+        // ZAP returns immediately with "pending" status
+        const scanPromises = [];
+
+        if (!scan.pagespeedResult) {
+          scanPromises.push(getPageSpeedReport(scan.target));
+        } else {
+          scanPromises.push(Promise.resolve(scan.pagespeedResult));
+        }
+
+        if (!scan.observatoryResult) {
+          scanPromises.push(scanHost(hostname));
+        } else {
+          scanPromises.push(Promise.resolve(scan.observatoryResult));
+        }
+
+        if (!scan.urlscanResult) {
+          scanPromises.push(runUrlScan(scan.target));
+        } else {
+          scanPromises.push(Promise.resolve(scan.urlscanResult));
+        }
+
+        // ONLY start ZAP if it hasn't been started yet
+        if (zapNotStarted) {
+          console.log('🚀 Starting ZAP scan for the FIRST time...');
+          scanPromises.push(startAsyncZapScan(scan.target, scan.analysisId, req.user.id));
+        } else {
+          console.log('⏭️ ZAP scan already started, skipping initialization...');
+          scanPromises.push(Promise.resolve(scan.zapResult));
+        }
+
+        const [psiResult, obsResult, urlscanResult, zapInitResult] = await Promise.allSettled(scanPromises);
 
         // Handle PageSpeed result
         let psiReport = null;
@@ -437,13 +465,11 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           psiReport = psiResult.value;
           scan.pagespeedResult = psiReport;
           console.log('✅ PageSpeed report fetched successfully');
-          await scan.save(); // 💾 Save immediately so it survives crashes
         } else {
           console.error('⚠️  PageSpeed scan failed:', psiResult.reason);
           console.error('⚠️  Error details:', psiResult.reason?.message);
           // Store error gracefully - don't fail entire scan
           scan.pagespeedResult = { error: psiResult.reason?.message || 'PageSpeed scan failed' };
-          await scan.save(); // 💾 Save error state too
         }
 
         // Handle Observatory result
@@ -452,28 +478,27 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           observatoryReport = obsResult.value;
           scan.observatoryResult = observatoryReport;
           console.log('✅ Observatory scan result:', observatoryReport);
-          await scan.save(); // 💾 Save immediately
         } else {
           console.error('⚠️  Observatory scan failed:', obsResult.reason);
           console.error('⚠️  Error details:', obsResult.reason?.message);
           // Continue even if Observatory fails - it's not critical
           scan.observatoryResult = { error: obsResult.reason?.message || 'Observatory scan failed' };
-          await scan.save(); // 💾 Save error state too
         }
 
-        // Handle ZAP result
-        let zapReport = null;
-        if (zapResult.status === 'fulfilled') {
-          zapReport = zapResult.value;
-          scan.zapResult = zapReport;
-          console.log('✅ ZAP scan completed:', zapReport?.riskCounts);
-          await scan.save(); // 💾 Save immediately
+        // Handle ZAP initialization result
+        // ZAP scan is running in background, so we just store the initial "pending" status
+        if (zapInitResult.status === 'fulfilled') {
+          const zapInit = zapInitResult.value;
+          scan.zapResult = zapInit; // Store pending status
+          console.log('✅ ZAP scan started in background:', zapInit.status);
         } else {
-          console.error('⚠️  ZAP scan failed:', zapResult.reason);
-          console.error('⚠️  Error details:', zapResult.reason?.message);
-          // Continue even if ZAP fails - it's not critical
-          scan.zapResult = { error: zapResult.reason?.message || 'ZAP scan failed or not available' };
-          await scan.save(); // 💾 Save error state too
+          console.error('⚠️  ZAP scan failed to start:', zapInitResult.reason);
+          console.error('⚠️  Error details:', zapInitResult.reason?.message);
+          // Store error if ZAP failed to start
+          scan.zapResult = {
+            status: 'failed',
+            error: zapInitResult.reason?.message || 'ZAP scan failed to start'
+          };
         }
 
         // Handle urlscan result
@@ -482,54 +507,19 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           urlscanReport = urlscanResult.value;
           scan.urlscanResult = urlscanReport;
           console.log('✅ urlscan completed:', urlscanReport?.verdicts?.overall?.malicious ? 'MALICIOUS' : 'Clean');
-          await scan.save(); // 💾 Save immediately
         } else {
           console.error('⚠️  urlscan failed:', urlscanResult.reason);
           console.error('⚠️  Error details:', urlscanResult.reason?.message);
           // Continue even if urlscan fails - it's not critical
           scan.urlscanResult = { error: urlscanResult.reason?.message || 'urlscan failed or not available' };
-          await scan.save(); // 💾 Save error state too
         }
 
-        // Handle WebCheck result (30 scans)
-        let webCheckReport = null;
-        if (webCheckResult.status === 'fulfilled') {
-          webCheckReport = webCheckResult.value;
-
-          // 🔧 Truncate large fields to prevent MongoDB 16MB limit
-          if (webCheckReport.screenshot?.image && webCheckReport.screenshot.image.length > 500000) {
-            console.log('⚠️  Truncating large screenshot to prevent MongoDB limit');
-            webCheckReport.screenshot = { error: 'Screenshot too large, use urlscan fallback' };
-          }
-
-          scan.webCheckResult = webCheckReport;
-          console.log('✅ WebCheck completed:', Object.keys(webCheckReport).length, 'scans');
-          await scan.save(); // 💾 Save immediately
-        } else {
-          console.error('⚠️  WebCheck failed:', webCheckResult.reason);
-          console.error('⚠️  Error details:', webCheckResult.reason?.message);
-          // Continue even if WebCheck fails - it's not critical
-          scan.webCheckResult = { error: webCheckResult.reason?.message || 'WebCheck failed or not available' };
-          await scan.save(); // 💾 Save error state too
-        }
-
-        // Generate refined report with Gemini (now includes Observatory, ZAP, urlscan and WebCheck data)
-        console.log('🤖 Generating AI-refined report with all scan data...');
-        try {
-          const aiReport = await refineReport(scan.vtResult, psiReport, observatoryReport, scan.target, zapReport, urlscanReport);
-          scan.refinedReport = aiReport;
-        } catch (geminiError) {
-          console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
-          // Don't fail the entire scan if only Gemini fails
-          // Store a fallback message instead
-          scan.refinedReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
-        }
-
-        // Mark as completed (even if Gemini failed, we have VT, PSI, Observatory, and ZAP data)
-        scan.status = 'completed';
+        // Save results so far (PSI, Observatory, urlscan complete, ZAP pending)
         await scan.save();
+        console.log('✅ Fast scans complete (PSI, Observatory, urlscan). ZAP running in background.');
 
-        console.log('✅ Combined analysis completed!');
+        // DON'T generate Gemini report yet - wait for ZAP to complete
+        // Frontend will poll and we'll check ZAP status on next request
       } catch (combineError) {
         console.error('❌ Error in combining step:', combineError);
         scan.status = 'failed';
@@ -542,7 +532,58 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       }
     }
 
-    // STEP C: Return results (partial or complete)
+    // STEP C: Check if ZAP is complete and generate Gemini report
+    // This runs on EVERY poll request until Gemini report is generated
+    const zapStatus = scan.zapResult?.status;
+    const hasZapCompleted = zapStatus === 'completed';
+    const hasZapFailed = zapStatus === 'failed';
+    const zapIsDone = hasZapCompleted || hasZapFailed;
+
+    // If ZAP is done AND we don't have Gemini report yet, generate it now
+    if (zapIsDone && !scan.refinedReport && scan.pagespeedResult && scan.observatoryResult) {
+      console.log('🤖 ZAP scan finished! Generating Gemini AI report with ALL scan data...');
+
+      try {
+        // Prepare data for Gemini (with or without ZAP results depending on success)
+        const psiReport = scan.pagespeedResult?.error ? null : scan.pagespeedResult;
+        const observatoryReport = scan.observatoryResult?.error ? null : scan.observatoryResult;
+        const urlscanReport = scan.urlscanResult?.error ? null : scan.urlscanResult;
+
+        // Only include ZAP data if scan succeeded
+        const zapReport = hasZapCompleted ? {
+          site: scan.target,
+          riskCounts: scan.zapResult.riskCounts,
+          alerts: scan.zapResult.alerts,
+          totalAlerts: scan.zapResult.totalAlerts,
+          totalOccurrences: scan.zapResult.totalOccurrences
+        } : null;
+
+        // Generate AI report with all available data
+        const aiReport = await refineReport(
+          scan.vtResult,
+          psiReport,
+          observatoryReport,
+          scan.target,
+          zapReport,
+          urlscanReport
+        );
+
+        scan.refinedReport = aiReport;
+        scan.status = 'completed'; // Mark entire scan as complete
+        await scan.save();
+
+        console.log('✅ Gemini AI report generated with all scan data!');
+        console.log(`   Included ZAP data: ${zapReport ? 'Yes' : 'No (scan failed)'}`);
+      } catch (geminiError) {
+        console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
+        // Store fallback message
+        scan.refinedReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
+        scan.status = 'completed'; // Still mark as complete
+        await scan.save();
+      }
+    }
+
+    // STEP D: Return results (partial or complete)
     // Extract key metrics for easy access - even for partial results
     const vtStats = scan.vtResult?.data?.attributes?.stats || null;
     const lighthouseResult = scan.pagespeedResult?.lighthouseResult || {};
@@ -563,11 +604,41 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       tests_quantity: scan.observatoryResult.tests_quantity
     } : null;
 
-    const zapData = scan.zapResult && !scan.zapResult.error ? {
-      riskCounts: scan.zapResult.riskCounts,
-      alerts: scan.zapResult.alerts,
-      site: scan.zapResult.site
-    } : null;
+    // ZAP data handling - support pending/running/completed/failed states
+    let zapData = null;
+    if (scan.zapResult) {
+      const zapStatus = scan.zapResult.status;
+
+      if (zapStatus === 'completed') {
+        // ZAP scan completed successfully
+        zapData = {
+          status: 'completed',
+          riskCounts: scan.zapResult.riskCounts || { High: 0, Medium: 0, Low: 0, Informational: 0 },
+          alerts: scan.zapResult.alerts || [],
+          totalAlerts: scan.zapResult.totalAlerts || scan.zapResult.alerts?.length || 0,
+          totalOccurrences: scan.zapResult.totalOccurrences || 0,
+          reportFiles: scan.zapResult.reportFiles || [],
+          site: scan.zapResult.site || scan.target
+        };
+      } else if (zapStatus === 'pending' || zapStatus === 'running') {
+        // ZAP scan in progress - show progress info
+        zapData = {
+          status: zapStatus,
+          phase: scan.zapResult.phase || 'queued',
+          progress: scan.zapResult.progress || 0,
+          message: scan.zapResult.message || 'ZAP scan in progress...',
+          urlsFound: scan.zapResult.urlsFound || 0,
+          alertsFound: scan.zapResult.alertsFound || 0
+        };
+      } else if (zapStatus === 'failed') {
+        // ZAP scan failed
+        zapData = {
+          status: 'failed',
+          error: scan.zapResult.error || 'ZAP scan failed',
+          message: scan.zapResult.message || 'Vulnerability scan encountered an error'
+        };
+      }
+    }
 
     const urlscanData = scan.urlscanResult && !scan.urlscanResult.error ? {
       uuid: scan.urlscanResult.uuid,
@@ -577,8 +648,6 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       screenshot: scan.urlscanResult.screenshot,
       reportUrl: scan.urlscanResult.reportUrl
     } : null;
-
-    const webCheckData = scan.webCheckResult && !scan.webCheckResult.error ? scan.webCheckResult : null;
 
     // Always return all available data (progressive loading)
     return res.json({
@@ -590,9 +659,9 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       hasVtResult: !!scan.vtResult,
       hasPsiResult: !!scan.pagespeedResult,
       hasObservatoryResult: !!scan.observatoryResult,
-      hasZapResult: !!scan.zapResult && !scan.zapResult.error,
+      hasZapResult: !!scan.zapResult && scan.zapResult.status === 'completed',
+      zapPending: !!scan.zapResult && (scan.zapResult.status === 'pending' || scan.zapResult.status === 'running'),
       hasUrlscanResult: !!scan.urlscanResult && !scan.urlscanResult.error,
-      hasWebCheckResult: !!scan.webCheckResult && !scan.webCheckResult.error,
       hasRefinedReport: !!scan.refinedReport,
       // Actual data (null if not yet available)
       vtStats: vtStats,
@@ -600,14 +669,12 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       observatoryData: observatoryData,
       zapData: zapData,
       urlscanData: urlscanData,
-      webCheckData: webCheckData,
       refinedReport: scan.refinedReport || null,
       vtResult: scan.vtResult || null,
       pagespeedResult: scan.pagespeedResult || null,
       observatoryResult: scan.observatoryResult || null,
       zapResult: scan.zapResult || null,
       urlscanResult: scan.urlscanResult || null,
-      webCheckResult: scan.webCheckResult || null,
       createdAt: scan.createdAt,
       updatedAt: scan.updatedAt
     });
@@ -623,7 +690,78 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
   }
 });
 
-// 7️⃣ Get file report by hash (Protected route)
+// 7️⃣ Download Complete JSON Report (All scan data combined)
+router.get('/download-complete-json/:id', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ error: 'Analysis ID is required' });
+    }
+
+    console.log(`📥 Downloading complete JSON report for ID: ${id}`);
+
+    // Find the scan in database
+    const scan = await ScanResult.findOne({ analysisId: id, userId: req.user.id });
+
+    if (!scan) {
+      return res.status(404).json({
+        error: 'Scan not found or access denied'
+      });
+    }
+
+    // Prepare complete JSON data package
+    const completeData = {
+      metadata: {
+        scanId: scan.analysisId,
+        target: scan.target,
+        scannedAt: scan.createdAt,
+        completedAt: scan.updatedAt,
+        status: scan.status,
+        generatedBy: 'SSDT Security Scanner',
+        version: '2.0'
+      },
+      virusTotal: scan.vtResult || null,
+      pageSpeed: scan.pagespeedResult || null,
+      observatory: scan.observatoryResult || null,
+      urlscan: scan.urlscanResult || null,
+      zap: {
+        summary: {
+          riskCounts: scan.zapResult?.riskCounts || null,
+          totalAlerts: scan.zapResult?.totalAlerts || null,
+          totalOccurrences: scan.zapResult?.totalOccurrences || null,
+          urlsFound: scan.zapResult?.urlsFound || null,
+          status: scan.zapResult?.status || null,
+          completedAt: scan.zapResult?.completedAt || null
+        },
+        alerts: scan.zapResult?.alerts || [],
+        reportFiles: scan.zapResult?.reportFiles || []
+      },
+      aiAnalysis: {
+        refinedReport: scan.refinedReport || null,
+        generatedAt: scan.updatedAt
+      }
+    };
+
+    // Set headers for JSON download
+    const filename = `scan_report_${scan.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.json`;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    // Send JSON
+    res.json(completeData);
+    console.log(`✅ Complete JSON report downloaded: ${filename}`);
+
+  } catch (err) {
+    console.error('❌ Download complete JSON error:', err);
+    res.status(500).json({
+      error: 'Failed to download complete JSON report',
+      details: err.message
+    });
+  }
+});
+
+// 8️⃣ Get file report by hash (Protected route)
 router.get('/file-report/:hash', auth, async (req, res) => {
   try {
     const { hash } = req.params;
@@ -644,27 +782,6 @@ router.get('/file-report/:hash', auth, async (req, res) => {
       error: 'Failed to retrieve file report',
       details: err.message
     });
-  }
-});
-
-// 8️⃣ Delete scan by analysis ID (Protected route) - for Stop button
-router.delete('/delete-scan/:id', auth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    console.log(`🗑️ User ${req.user.id} requested to delete scan: ${id}`);
-
-    const result = await ScanResult.deleteOne({ analysisId: id, userId: req.user.id });
-
-    if (result.deletedCount > 0) {
-      console.log(`✅ Scan ${id} deleted successfully`);
-      res.json({ success: true, message: 'Scan deleted' });
-    } else {
-      console.log(`⚠️ Scan ${id} not found or not owned by user`);
-      res.status(404).json({ success: false, message: 'Scan not found' });
-    }
-  } catch (err) {
-    console.error('❌ Delete scan error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
   }
 });
 

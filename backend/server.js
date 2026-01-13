@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const connectDB = require('./db');
 const { apiLimiter, authLimiter, scanLimiter } = require('./middleware/rateLimiter');
+const gridfsService = require('./services/gridfsService'); // GridFS for ZAP reports
 
 // 👇 IMPORT ZAP ROUTES
 const zapRoutes = require('./routes/zapRoutes');
@@ -19,7 +20,18 @@ if (missingVars.length > 0) {
 }
 
 const app = express();
-connectDB();
+
+// Connect to database and initialize GridFS
+connectDB().then(() => {
+  // Initialize GridFS after MongoDB connection is established
+  try {
+    gridfsService.initialize();
+    console.log('✅ GridFS initialized for ZAP report storage');
+  } catch (error) {
+    console.error('⚠️  GridFS initialization failed:', error.message);
+    console.error('   ZAP report storage may not work properly');
+  }
+});
 
 app.set('trust proxy', 1);
 

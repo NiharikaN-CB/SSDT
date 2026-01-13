@@ -27,37 +27,20 @@ class ZAPScanner:
         self.context_name = "AIAutomatedScan"
         self.domain = urlparse(target_url).netloc
         
-        # State tracking for cached values (v4.0)
-        self.last_alert_count = 0
-        self.last_url_count = 0
-        self.api_timeout_count = 0
-        
     def log(self, message, level="INFO"):
         """Structured logging for AI parsing"""
         print(f"[{level}] {message}", flush=True)
         
-    def api_call(self, endpoint, params=None, timeout=60, retries=3):
-        """Make ZAP API call with error handling and retries"""
+    def api_call(self, endpoint, params=None):
+        """Make ZAP API call with error handling"""
         url = f"{self.zap_api}/JSON/{endpoint}"
-        
-        for attempt in range(retries):
-            try:
-                response = requests.get(url, params=params, timeout=timeout)
-                response.raise_for_status()
-                return response.json()
-            except requests.exceptions.Timeout:
-                if attempt < retries - 1:
-                    wait_time = 5 * (attempt + 1)
-                    self.log(f"API timeout on {endpoint}, retry {attempt + 1}/{retries} in {wait_time}s", "WARNING")
-                    time.sleep(wait_time)
-                else:
-                    self.log(f"API call timed out after {retries} attempts: {endpoint}", "ERROR")
-                    return None
-            except Exception as e:
-                self.log(f"API call failed: {endpoint} - {str(e)}", "ERROR")
-                return None
-        
-        return None
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self.log(f"API call failed: {endpoint} - {str(e)}", "ERROR")
+            return None
             
     def wait_for_zap(self, timeout=120):
         """Wait for ZAP to be ready"""
@@ -77,31 +60,6 @@ class ZAPScanner:
             
         self.log("ZAP failed to start", "ERROR")
         return False
-    
-    def configure_file_exclusions(self):
-        """Configure exclusions for large file types (v4.0)"""
-        self.log("Configuring file type exclusions...")
-        
-        patterns = [
-            # Videos (prevent infinite loops)
-            r".*\.webm.*", r".*\.mp4.*", r".*\.mov.*", r".*\.avi.*",
-            r".*\.mkv.*", r".*\.flv.*", r".*\.wmv.*",
-            # Archives (prevent database bloat)
-            r".*\.zip$", r".*\.tar$", r".*\.gz$", r".*\.rar$",
-            r".*\.7z$", r".*\.iso$", r".*\.dmg$",
-            # Executables (not scannable)
-            r".*\.exe$", r".*\.msi$", r".*\.app$",
-            r".*\.deb$", r".*\.rpm$", r".*\.pkg$"
-        ]
-        
-        excluded_count = 0
-        for pattern in patterns:
-            result = self.api_call("core/action/excludeFromProxy", {"regex": pattern})
-            if result:
-                excluded_count += 1
-        
-        self.log(f"Configured {excluded_count}/{len(patterns)} exclusion patterns")
-        return excluded_count
         
     def configure_spider(self, max_depth=20, max_duration=120):
         """Configure traditional spider for maximum discovery"""
@@ -310,57 +268,18 @@ class ZAPScanner:
         scan_id = result.get('scan')
         self.log(f"Active scan ID: {scan_id}")
         
-        # Monitor progress with error tracking and caching (v4.0)
-        consecutive_failures = 0
-        max_consecutive_failures = 10
-        last_progress = 0
-        stuck_count = 0
-        
+        # Monitor progress
         while True:
             status_result = self.api_call("ascan/view/status", {"scanId": scan_id})
-            
             if not status_result:
-                consecutive_failures += 1
-                if consecutive_failures >= max_consecutive_failures:
-                    self.log(f"Too many consecutive API failures ({max_consecutive_failures}), stopping", "ERROR")
-                    break
-                self.log(f"Status check failed, will retry (failure {consecutive_failures}/{max_consecutive_failures})", "WARNING")
-                time.sleep(30)
-                continue
-            
-            consecutive_failures = 0
-            
+                break
+                
             status = status_result.get('status', '0')
-            progress = int(status)
-            
-            # Stuck detection
-            if progress == last_progress:
-                stuck_count += 1
-                if stuck_count > 20:
-                    self.log(f"Scan stuck at {progress}% for 5+ minutes", "WARNING")
-                    stuck_count = 0
-            else:
-                stuck_count = 0
-            
-            last_progress = progress
-            
             if status == '100':
                 break
-            
-            # Get alert count with caching
-            alerts = self.api_call("core/view/numberOfAlerts", timeout=45)
-            if alerts and 'numberOfAlerts' in alerts:
-                try:
-                    alert_count = int(alerts.get('numberOfAlerts', 0))
-                    self.last_alert_count = alert_count
-                    self.api_timeout_count = 0
-                except (ValueError, TypeError):
-                    alert_count = self.last_alert_count
-            else:
-                alert_count = self.last_alert_count
-                self.api_timeout_count += 1
-                if self.api_timeout_count <= 3:
-                    self.log(f"Using cached alert count: {alert_count} (API busy)", "WARNING")
+                
+            alerts = self.api_call("core/view/numberOfAlerts")
+            alert_count = alerts.get('numberOfAlerts', 0) if alerts else 0
             
             self.log(f"Active scan: {status}% | Alerts: {alert_count}")
             time.sleep(15)
@@ -450,9 +369,6 @@ class ZAPScanner:
             self.configure_active_scanner(max_duration=180)
             
         self.create_context()
-        
-        # Configure file exclusions BEFORE scanning (v4.0)
-        self.configure_file_exclusions()
         
         # Access target
         self.api_call("core/action/accessUrl", {"url": self.target})
