@@ -22,8 +22,8 @@
   min-height: 100vh;
   color: var(--neon-purple-text) !important;
 
-  // Global text color override
-  * {
+  // Global text color override (but not buttons)
+  *:not(button):not(.btn):not(.btn-edit):not(.btn-save):not(.btn-cancel):not(.btn-upgrade):not(.signup-button):not(.logout-button):not(.profile-button) {
     color: var(--neon-purple-text);
   }
 
@@ -55,19 +55,8 @@
   .profile-button,
   .analyze-form button,
   .google-btn {
-    // Match Edit Profile button exactly
-    padding: 0.6rem 1.5rem !important;
-    border-radius: 10px !important;
-    font-size: 0.9rem !important;
-    font-weight: 700 !important;
-    font-family: 'Orbitron', var(--font-sans) !important;
-    text-transform: uppercase !important;
-    letter-spacing: 1.5px !important;
-    position: relative !important;
-    overflow: hidden !important;
-
     background: transparent !important;
-    color: var(--neon-purple-bright) !important;
+    color: var(--neon-purple-primary) !important;
     border: 2px solid var(--neon-purple-bright) !important;
     box-shadow:
       0 0 20px var(--neon-purple-glow),
@@ -87,6 +76,7 @@
     &:active:not(:disabled) {
       transform: translateY(0) !important;
       background: var(--neon-purple-primary) !important;
+      color: #000 !important;
     }
 
     &:disabled {
@@ -139,7 +129,7 @@
   }
 
   // ===================================
-  // CARDS & CONTAINERS
+  // CARDS & CONTAINERS - GLASSMORPHISM
   // ===================================
   .card,
   .profile-section,
@@ -151,16 +141,23 @@
   .performance-card,
   .ai-card,
   .observatory-card {
-    background: rgba(26, 11, 46, 0.7) !important;
-    backdrop-filter: blur(10px) !important;
+    background: rgba(26, 11, 46, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
     border: 2px solid var(--neon-purple-primary) !important;
     box-shadow:
-      0 0 30px var(--neon-purple-glow),
-      inset 0 0 20px rgba(168, 85, 247, 0.1) !important;
+      0 0 20px var(--neon-purple-glow),
+      inset 0 0 15px rgba(168, 85, 247, 0.05) !important;
     color: var(--neon-purple-text) !important;
 
     h1, h2, h3, h4, h5, h6, p, span, div, label {
       color: var(--neon-purple-text) !important;
+    }
+
+    &:hover {
+      background: rgba(26, 11, 46, 0.15) !important;
+      box-shadow:
+        0 0 30px var(--neon-purple-glow-strong),
+        inset 0 0 20px rgba(168, 85, 247, 0.1) !important;
     }
   }
 
@@ -170,6 +167,8 @@
   .profile-field,
   .info-item,
   .profile-details {
+    background: rgba(26, 11, 46, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
     border-color: var(--neon-purple-primary) !important;
   }
 
@@ -192,29 +191,29 @@
     }
   }
 
-  // Profile container main border
+  // Profile container - remove border (let sections have borders)
   .profile-container {
-    border: 2px solid var(--neon-purple-primary) !important;
-    box-shadow:
-      0 0 40px var(--neon-purple-glow),
-      inset 0 0 30px rgba(168, 85, 247, 0.1) !important;
+    border: none !important;
+    box-shadow: none !important;
   }
 
-  // Stats grid cards
+  // Stats grid cards - glassmorphism
   .stats-grid {
     .stat-card {
       border: 2px solid var(--neon-purple-primary) !important;
-      background: rgba(26, 11, 46, 0.6) !important;
+      background: rgba(26, 11, 46, 0.02) !important;
+      backdrop-filter: blur(3px) !important;
       box-shadow:
-        0 0 20px var(--neon-purple-glow),
-        inset 0 0 15px rgba(168, 85, 247, 0.1) !important;
+        0 0 15px var(--neon-purple-glow),
+        inset 0 0 10px rgba(168, 85, 247, 0.03) !important;
 
       &:hover {
+        background: rgba(26, 11, 46, 0.15) !important;
         border-color: var(--neon-purple-bright) !important;
         box-shadow:
-          0 0 30px var(--neon-purple-glow-strong),
-          inset 0 0 20px rgba(168, 85, 247, 0.2) !important;
-        transform: translateY(-2px);
+          0 0 25px var(--neon-purple-glow-strong),
+          inset 0 0 15px rgba(168, 85, 247, 0.08) !important;
+        transform: translateY(-4px);
       }
 
       .stat-value {
@@ -761,8 +760,35 @@ body.dark .pro-theme {
 
   .card,
   .profile-section {
-    background: rgba(26, 11, 46, 0.8) !important;
-    backdrop-filter: blur(10px) !important;
+    background: rgba(26, 11, 46, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
+
+    &:hover {
+      background: rgba(26, 11, 46, 0.15) !important;
+    }
+  }
+
+  .stat-card {
+    background: rgba(26, 11, 46, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
+
+    &:hover {
+      background: rgba(26, 11, 46, 0.15) !important;
+    }
+  }
+
+  .scan-item {
+    background: rgba(26, 11, 46, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
+
+    &:hover {
+      background: rgba(26, 11, 46, 0.15) !important;
+    }
+  }
+
+  .profile-info {
+    background: rgba(26, 11, 46, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
   }
 }
 
@@ -788,41 +814,68 @@ body.light .pro-theme {
 
   button,
   .btn {
-    color: #ffffff !important;
+    color: var(--neon-purple-primary) !important;
   }
 
   .card,
   .profile-section {
-    background: rgba(243, 232, 255, 0.7) !important;
-    backdrop-filter: blur(10px) !important;
+    background: rgba(243, 232, 255, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
+
+    &:hover {
+      background: rgba(243, 232, 255, 0.1) !important;
+    }
   }
 
   // ===================================
-  // STATS CARDS - LIGHT BACKGROUND IN LIGHT MODE
+  // STATS CARDS - GLASSMORPHISM IN LIGHT MODE
   // ===================================
   .stats-grid .stat-card {
-    background: rgba(243, 232, 255, 0.6) !important;
+    background: rgba(243, 232, 255, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
+
+    &:hover {
+      background: rgba(243, 232, 255, 0.1) !important;
+    }
   }
 
   // ===================================
-  // RECENT SCANS - LIGHT BACKGROUND IN LIGHT MODE
+  // RECENT SCANS - GLASSMORPHISM IN LIGHT MODE
   // ===================================
   .recent-scans .scan-item {
-    background: rgba(243, 232, 255, 0.4) !important;
+    background: rgba(243, 232, 255, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
+
+    &:hover {
+      background: rgba(243, 232, 255, 0.1) !important;
+    }
   }
 
   // ===================================
-  // PROFILE INFO - LIGHT BACKGROUND IN LIGHT MODE
+  // PROFILE INFO - GLASSMORPHISM IN LIGHT MODE
   // ===================================
   .profile-info {
-    background: rgba(243, 232, 255, 0.5) !important;
+    background: rgba(243, 232, 255, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
   }
 
   .profile-info .info-row {
     background: transparent !important;
 
     &:hover {
-      background: rgba(233, 213, 255, 0.3) !important;
+      background: rgba(233, 213, 255, 0.15) !important;
+    }
+  }
+
+  // ===================================
+  // PROFILE SECTION - GLASSMORPHISM IN LIGHT MODE
+  // ===================================
+  .profile-section {
+    background: rgba(243, 232, 255, 0.02) !important;
+    backdrop-filter: blur(3px) !important;
+
+    &:hover {
+      background: rgba(243, 232, 255, 0.1) !important;
     }
   }
 
