@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../contexts/TranslationContext';
+import { useTheme } from '../context/ThemeContext';
+import ReactMarkdown from 'react-markdown';
 import ZapReportEnhanced from './ZapReportEnhanced';
 import '../styles/Hero.scss';
 import '../styles/HeroReport.scss';
@@ -39,6 +41,7 @@ const Hero = () => {
 
   const navigate = useNavigate();
   const { currentLang, setHasReport } = useTranslation();
+  const { theme } = useTheme();
 
   // 🌐 Report Translation State
   const [translatedReport, setTranslatedReport] = useState(null);
@@ -398,17 +401,14 @@ const Hero = () => {
         {report?.status && <p>Status: <b>{report.status}</b></p>}
 
         {/* AI Summary - Shows loading placeholder or content */}
-        <div className="ai-report-section" style={{
-          background: 'var(--card-bg)',
+        <div className="ai-report-section markdown-content" style={{
+          background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)',
           padding: '1.5rem',
           marginBottom: '2rem',
           borderRadius: '8px',
           border: '2px solid var(--accent)',
-          fontFamily: 'monospace',
-          whiteSpace: 'pre-wrap',
           lineHeight: '1.6',
-          fontSize: '0.9rem',
-          textAlign: 'justify'
+          fontSize: '0.95rem'
         }}>
           <h4 style={{ marginTop: 0, color: 'var(--accent)' }}>🤖 AI-Generated Analysis Summary</h4>
           {refinedReport ? (
@@ -417,8 +417,9 @@ const Hero = () => {
                 <p style={{ color: 'var(--accent)' }}>🌐 Translating report to Japanese...</p>
               </div>
             ) : (
-              (currentLang === 'ja' && translatedReport ? translatedReport : refinedReport)
-                .replace(/```markdown|```/g, '').replace(/^#{1,6}\s+/gm, '')
+              <ReactMarkdown>
+                {currentLang === 'ja' && translatedReport ? translatedReport : refinedReport}
+              </ReactMarkdown>
             )
           ) : (
             <div className="loading-pulse">
@@ -1020,14 +1021,14 @@ const Hero = () => {
         {/* 🔍 WebCheck Detailed Results */}
         {webCheckReport && (
           <details style={{ marginBottom: '2rem' }}>
-            <summary style={{ cursor: 'pointer', fontWeight: 'bold', padding: '1rem', background: 'var(--card-bg)', borderRadius: '8px', border: '1px solid #00d084' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 'bold', padding: '1rem', background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', borderRadius: '8px', border: '1px solid #00d084' }}>
               🔍 View WebCheck Analysis ({Object.keys(webCheckReport).filter(k => !webCheckReport[k]?.error).length} scans complete)
             </summary>
             <div style={{ marginTop: '1rem', display: 'grid', gap: '1rem' }}>
 
               {/* SSL Details */}
               {webCheckReport.ssl && !webCheckReport.ssl.error && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🔐 SSL Certificate Details</h5>
                   <p><b>Subject:</b> {webCheckReport.ssl.subject?.CN || 'N/A'}</p>
                   <p><b>Issuer:</b> {webCheckReport.ssl.issuer?.O || 'N/A'}</p>
@@ -1038,7 +1039,7 @@ const Hero = () => {
 
               {/* DNS Records */}
               {webCheckReport.dns && !webCheckReport.dns.error && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🌐 DNS Records</h5>
                   <p><b>A Record:</b> {webCheckReport.dns.A?.address || JSON.stringify(webCheckReport.dns.AAAA) || 'N/A'}</p>
                   <p><b>MX Records:</b> {webCheckReport.dns.MX?.length || 0} found</p>
@@ -1049,7 +1050,7 @@ const Hero = () => {
 
               {/* Security Headers */}
               {webCheckReport['http-security'] && !webCheckReport['http-security'].error && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🛡️ Security Headers</h5>
                   {Object.entries(webCheckReport['http-security']).map(([key, val]) => (
                     <p key={key}><b>{key}:</b> <span style={{ color: val ? '#00d084' : '#e81123' }}>{val ? '✓ Present' : '✗ Missing'}</span></p>
@@ -1065,7 +1066,7 @@ const Hero = () => {
 
                 if (techArray && techArray.length > 0) {
                   return (
-                    <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                    <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                       <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🛠️ Technology Stack</h5>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                         {techArray.slice(0, 15).map((tech, idx) => (
@@ -1082,7 +1083,7 @@ const Hero = () => {
 
               {/* Open Ports */}
               {webCheckReport.ports?.openPorts && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🔌 Open Ports</h5>
                   <p>{webCheckReport.ports.openPorts.length > 0 ? webCheckReport.ports.openPorts.join(', ') : 'No common ports detected as open'}</p>
                 </div>
@@ -1090,7 +1091,7 @@ const Hero = () => {
 
               {/* Cookies */}
               {webCheckReport.cookies && !webCheckReport.cookies.error && !webCheckReport.cookies.skipped && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🍪 Cookies</h5>
                   <p><b>Header Cookies:</b> {webCheckReport.cookies.headerCookies?.length || 0}</p>
                   <p><b>Client Cookies:</b> {webCheckReport.cookies.clientCookies?.length || 0}</p>
@@ -1099,7 +1100,7 @@ const Hero = () => {
 
               {/* WHOIS Details */}
               {webCheckReport.whois && !webCheckReport.whois.error && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📋 WHOIS Information</h5>
                   <p><b>Registrar:</b> {webCheckReport.whois.registrar || 'N/A'}</p>
                   <p><b>Created:</b> {webCheckReport.whois.createdDate || webCheckReport.whois.created || 'N/A'}</p>
@@ -1110,7 +1111,7 @@ const Hero = () => {
 
               {/* Mail Config Details */}
               {webCheckReport['mail-config'] && !webCheckReport['mail-config'].error && !webCheckReport['mail-config'].skipped && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📧 Mail Configuration</h5>
                   <p><b>MX Records:</b> {webCheckReport['mail-config'].mxRecords?.length || 0}</p>
                   {webCheckReport['mail-config'].mxRecords?.slice(0, 3).map((mx, idx) => (
@@ -1124,7 +1125,7 @@ const Hero = () => {
 
               {/* TLS Details */}
               {webCheckReport.tls && !webCheckReport.tls.error && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🔒 TLS Security (Observatory)</h5>
                   <p><b>Grade:</b> <span style={{ color: getObservatoryGradeColor(webCheckReport.tls.tlsInfo?.grade), fontWeight: 'bold' }}>{webCheckReport.tls.tlsInfo?.grade || 'N/A'}</span></p>
                   <p><b>Score:</b> {webCheckReport.tls.tlsInfo?.score || 0}/100</p>
@@ -1134,7 +1135,7 @@ const Hero = () => {
 
               {/* Social Tags Details */}
               {webCheckReport['social-tags'] && !webCheckReport['social-tags'].error && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📱 Social Media Tags</h5>
                   <p><b>OG Title:</b> {webCheckReport['social-tags'].ogTitle || webCheckReport['social-tags'].openGraph?.title || 'N/A'}</p>
                   <p><b>OG Description:</b> {(webCheckReport['social-tags'].ogDescription || webCheckReport['social-tags'].openGraph?.description || 'N/A').substring(0, 100)}</p>
@@ -1144,7 +1145,7 @@ const Hero = () => {
 
               {/* Redirects Details */}
               {webCheckReport.redirects && !webCheckReport.redirects.error && webCheckReport.redirects.redirects?.length > 0 && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>↪️ Redirect Chain</h5>
                   {webCheckReport.redirects.redirects.map((redirect, idx) => (
                     <p key={idx} style={{ fontSize: '0.85rem' }}>
@@ -1156,7 +1157,7 @@ const Hero = () => {
 
               {/* Archives Details */}
               {webCheckReport.archives && !webCheckReport.archives.error && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📚 Web Archive History</h5>
                   <p><b>Total Snapshots:</b> {webCheckReport.archives.scanCount || webCheckReport.archives.length || 'Available'}</p>
                   {webCheckReport.archives.firstScan && <p><b>First Snapshot:</b> {webCheckReport.archives.firstScan}</p>}
@@ -1166,7 +1167,7 @@ const Hero = () => {
 
               {/* Carbon Footprint Details */}
               {webCheckReport.carbon && !webCheckReport.carbon.error && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🌱 Carbon Footprint</h5>
                   <p><b>Green Hosting:</b> <span style={{ color: webCheckReport.carbon.isGreen ? '#00d084' : '#ffb900' }}>{webCheckReport.carbon.isGreen ? 'Yes' : 'No'}</span></p>
                   {webCheckReport.carbon.co2 && (
@@ -1180,7 +1181,7 @@ const Hero = () => {
 
               {/* TXT Records */}
               {webCheckReport['txt-records'] && !webCheckReport['txt-records'].error && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📝 TXT Records</h5>
                   {(webCheckReport['txt-records'].txtRecords || webCheckReport['txt-records'].records || []).slice(0, 5).map((record, idx) => (
                     <p key={idx} style={{ fontSize: '0.8rem', wordBreak: 'break-all' }}>
@@ -1192,7 +1193,7 @@ const Hero = () => {
 
               {/* Headers */}
               {webCheckReport.headers && !webCheckReport.headers.error && (
-                <div style={{ background: 'var(--card-bg)', padding: '1rem', borderRadius: '8px' }}>
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
                   <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📋 HTTP Headers</h5>
                   {Object.entries(webCheckReport.headers).slice(0, 10).map(([key, val]) => (
                     <p key={key} style={{ fontSize: '0.8rem' }}><b>{key}:</b> {String(val).substring(0, 60)}</p>
@@ -1242,7 +1243,7 @@ const Hero = () => {
 
         {/* Detailed Engine Results */}
         <details style={{ marginTop: '2rem' }} data-no-translate>
-          <summary style={{ cursor: 'pointer', fontWeight: 'bold', padding: '1rem', background: 'var(--card-bg)', borderRadius: '8px' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 'bold', padding: '1rem', background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', borderRadius: '8px' }}>
             📋 View Detailed Engine Results ({totalEngines} engines)
           </summary>
           <table className="report-table" style={{ marginTop: '1rem' }}>

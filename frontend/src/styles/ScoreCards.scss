@@ -9,7 +9,7 @@
 }
 
 .score-card {
-    background: var(--card-bg);
+    background: rgba(0, 0, 0, 0.65);
     padding: var(--card-padding);
     border-radius: var(--card-border-radius);
     border: var(--card-border);
@@ -27,7 +27,7 @@
     /* Ensure uniform height */
 
     &:hover {
-        background: var(--card-bg-hover);
+        background: rgba(0, 0, 0, 0.8);
         box-shadow: var(--card-shadow-hover);
         transform: translateY(-4px);
         border-color: var(--accent-light);
@@ -143,5 +143,18 @@
 /* Dark Mode specific overrides if needed (though variables should handle most) */
 body.dark .score-card {
     /* Ensure backgrounds are deep enough in dark mode */
-    background: rgba(26, 31, 58, 0.8);
+    background: rgba(0, 0, 0, 0.65);
+
+    &:hover {
+        background: rgba(0, 0, 0, 0.8);
+    }
+}
+
+/* Light Theme Adjustments */
+body.light .score-card {
+    background: rgba(255, 255, 255, 0.75);
+
+    &:hover {
+        background: rgba(255, 255, 255, 0.9);
+    }
 }

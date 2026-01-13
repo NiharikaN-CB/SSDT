@@ -231,9 +231,9 @@ body.dark {
 
 .loading-placeholder {
   background: linear-gradient(90deg,
-      var(--card-bg) 0%,
+      rgba(0, 0, 0, 0.65) 0%,
       rgba(0, 176, 198, 0.15) 50%,
-      var(--card-bg) 100%);
+      rgba(0, 0, 0, 0.65) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
   border-radius: 4px;
@@ -244,7 +244,7 @@ body.dark {
 }
 
 .scan-progress-bar {
-  background: var(--card-bg);
+  background: rgba(0, 0, 0, 0.65);
   border: 2px solid var(--accent);
   border-radius: 12px;
   padding: 1.5rem;
@@ -321,7 +321,7 @@ body.dark {
 
 /* Screenshot Preview */
 .screenshot-preview {
-  background: var(--card-bg);
+  background: rgba(0, 0, 0, 0.65);
   padding: 1.5rem;
   border-radius: 12px;
   margin-bottom: 2rem;
@@ -356,7 +356,7 @@ body.dark {
 /* ZAP Progress Card */
 .zap-progress-card {
   padding: 2rem;
-  background: var(--card-bg);
+  background: rgba(0, 0, 0, 0.65);
   border-radius: 12px;
   margin-bottom: 2rem;
   text-align: center;
@@ -397,7 +397,7 @@ body.dark {
   align-items: center;
   margin-top: 3rem;
   padding: 2.5rem;
-  background: var(--card-bg);
+  background: rgba(0, 0, 0, 0.65);
   border-radius: 12px;
   border: 2px solid var(--accent);
   box-shadow: var(--card-shadow);
@@ -448,5 +448,24 @@ body.dark {
     font-size: 0.8rem;
     color: var(--foreground-darker);
     font-style: italic;
+  }
+}
+
+/* Light Theme Adjustments for Report Sections */
+body.light {
+  .scan-progress-bar {
+    background: rgba(255, 255, 255, 0.75);
+  }
+
+  .screenshot-preview {
+    background: rgba(255, 255, 255, 0.75);
+  }
+
+  .zap-progress-card {
+    background: rgba(255, 255, 255, 0.75);
+  }
+
+  .download-section {
+    background: rgba(255, 255, 255, 0.75);
   }
 }
