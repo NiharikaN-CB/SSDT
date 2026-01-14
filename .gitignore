@@ -41,3 +41,4 @@ Thumbs.db
 backend/zap-report-*.html
 backend/zap-report-*.json
 backend/zap-report-*.xml
+.claude/settings.local.json
