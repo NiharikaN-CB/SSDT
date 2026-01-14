@@ -160,6 +160,53 @@ router.get('/status/:scanId', auth, async (req, res) => {
   }
 });
 
+// POST /api/zap/stop/:scanId
+// Stop a running ZAP scan (Protected)
+router.post('/stop/:scanId', auth, async (req, res) => {
+  try {
+    const { scanId } = req.params;
+
+    if (!scanId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Scan ID is required'
+      });
+    }
+
+    console.log(`🛑 User ${req.user.id} requested to stop scan: ${scanId}`);
+
+    // Import necessary modules
+    const { stopZapScan } = require('../services/zapService');
+
+    // Stop the scan and restart Docker container
+    const result = await stopZapScan(scanId, req.user.id);
+
+    res.json({
+      success: true,
+      message: result.message || 'Scan stopped successfully',
+      scanId: scanId,
+      containerRestarted: result.containerRestarted || false,
+      note: 'ZAP container has been restarted for a fresh scan environment'
+    });
+
+  } catch (error) {
+    console.error('❌ Stop scan error:', error);
+
+    if (error.message.includes('not found') || error.message.includes('access denied')) {
+      return res.status(404).json({
+        success: false,
+        error: 'Scan not found or access denied'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to stop scan',
+      details: error.message
+    });
+  }
+});
+
 // GET /api/zap/scans
 // Get user's ZAP scan history (Protected)
 router.get('/scans', auth, async (req, res) => {

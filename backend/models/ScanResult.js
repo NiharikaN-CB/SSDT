@@ -12,7 +12,13 @@ const scanResultSchema = new mongoose.Schema({
     unique: true,
     index: true
   },
+  // Legacy field (kept for backwards compatibility)
   result: {
+    type: Object,
+    default: null
+  },
+  // VirusTotal scan result
+  vtResult: {
     type: Object,
     default: null
   },
@@ -45,7 +51,7 @@ const scanResultSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['queued', 'pending', 'combining', 'completed', 'failed'],
+    enum: ['queued', 'pending', 'combining', 'completed', 'failed', 'stopped'],
     default: 'queued'
   },
   userId: {

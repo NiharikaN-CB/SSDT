@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from '../contexts/TranslationContext';
 import { useTheme } from '../context/ThemeContext';
@@ -31,13 +31,17 @@ const Hero = () => {
   const [loadingStage, setLoadingStage] = useState('');
   const [error, setError] = useState(null);
 
+  // 🔄 Active scan tracking for stop/resume functionality
+  const [activeScanId, setActiveScanId] = useState(null);
+  const [scanUrl, setScanUrl] = useState('');
+  const stopPollingRef = useRef(false); // Flag to stop polling when scan is stopped
+  const abortControllerRef = useRef(null); // AbortController for cancelling in-flight requests
+
   // ⚡ ZAP is now handled by backend combined scan - keeping zapReport for backward compatibility with useEffect
   const [zapReport] = useState(null);
 
-  // 🔍 WebCheck Specific State
-  const [webCheckReport, setWebCheckReport] = useState(null);
-  const [webCheckLoading, setWebCheckLoading] = useState(false);
-  const [webCheckError, setWebCheckError] = useState(null);
+  // 🔍 WebCheck now runs in backend and results come from database via polling
+  // No more frontend WebCheck API calls - backend handles everything
 
   const navigate = useNavigate();
   const { currentLang, setHasReport } = useTranslation();
@@ -54,7 +58,109 @@ const Hero = () => {
     } else {
       setHasReport(false);
     }
-  }, [report, zapReport, webCheckReport, setHasReport]);
+  }, [report, zapReport, setHasReport]);
+
+  // 🔄 Resume scan from database on page load
+  // This handles: page refresh, browser tab killed, user returning hours later
+  // The backend runs scans independently, so we just need to check the database
+  useEffect(() => {
+    const checkForActiveScan = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      try {
+        // First, check the backend for any active scan (most reliable source)
+        console.log('🔄 Checking for active scan in database...');
+        const response = await fetch(`${API_BASE}/api/vt/active-scan`, {
+          headers: { 'x-auth-token': token }
+        });
+
+        if (!response.ok) {
+          console.log('⚠️ Could not check for active scan');
+          localStorage.removeItem('activeScan');
+          return;
+        }
+
+        const data = await response.json();
+
+        // No active scan found in database
+        if (!data.hasActiveScan) {
+          console.log('ℹ️ No active scan found in database');
+          localStorage.removeItem('activeScan');
+          return;
+        }
+
+        // Active scan found! Restore the state
+        console.log('🔄 Found scan in database:', data.analysisId);
+        console.log('   Status:', data.status);
+        console.log('   Target:', data.target);
+
+        // CASE 1: Scan is COMPLETED - show results directly, no polling needed
+        if (data.status === 'completed') {
+          console.log('✅ Scan already completed - showing results');
+
+          // Set the full report from database (includes WebCheck results)
+          setReport({
+            ...data,
+            isPartial: false
+          });
+
+          // Clear localStorage since scan is done
+          localStorage.removeItem('activeScan');
+
+          // No loading state needed - we have all results
+          setLoading(false);
+          return;
+        }
+
+        // CASE 2: Scan is IN PROGRESS - need to resume polling
+        console.log('🔄 Scan still in progress - resuming...');
+
+        // Update localStorage to match database (for consistency)
+        localStorage.setItem('activeScan', JSON.stringify({
+          scanId: data.analysisId,
+          url: data.target,
+          timestamp: new Date(data.createdAt).getTime()
+        }));
+
+        // Set UI state
+        setActiveScanId(data.analysisId);
+        setScanUrl(data.target);
+        setLoading(true);
+        setLoadingStage('Resuming scan...');
+        stopPollingRef.current = false;
+
+        // Calculate progress based on what's completed
+        let progress = 10;
+        if (data.hasVtResult) progress = 30;
+        if (data.hasPsiResult && data.hasObservatoryResult) progress = 50;
+        if (data.zapPending) progress = 60;
+        if (data.hasZapResult) progress = 85;
+        if (data.hasRefinedReport) progress = 95;
+        setLoadingProgress(progress);
+
+        // Set partial report data from the server response immediately
+        // This shows any progress that was made before refresh
+        // WebCheck results now come from backend via polling - no frontend calls needed
+        console.log('🔄 Restoring partial scan data from database');
+        setReport({
+          ...data,
+          isPartial: true
+        });
+
+        // Start polling for updates (scan still in progress)
+        // WebCheck progress will be included in poll responses
+        pollAnalysis(data.analysisId, token);
+
+      } catch (err) {
+        console.error('Error checking for active scan:', err);
+        localStorage.removeItem('activeScan');
+      }
+    };
+
+    checkForActiveScan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Translate the report when language changes to Japanese
   useEffect(() => {
@@ -101,64 +207,207 @@ const Hero = () => {
   // ⚡ ZAP scan is now integrated in the backend combined scan
   // No need for independent frontend ZAP call
 
-  // 🔍 Helper: Run WebCheck Scans in parallel
-  const runWebCheckScans = async (url, token) => {
-    // ALL 30 WebCheck scan types
-    const scanTypes = [
-      'ssl', 'dns', 'headers', 'cookies', 'firewall', 'ports',
-      'screenshot', 'tech-stack', 'hsts', 'security-txt', 'block-lists',
-      'social-tags', 'linked-pages', 'robots-txt', 'sitemap', 'status',
-      'redirects', 'mail-config', 'trace-route', 'http-security', 'get-ip',
-      'dns-server', 'dnssec', 'txt-records', 'carbon', 'archives',
-      'legacy-rank', 'whois', 'tls', 'quality'
-    ];
+  // 🛑 Stop scan handler
+  const handleStopScan = async () => {
+    // IMMEDIATELY set stop flag to prevent any new polling
+    stopPollingRef.current = true;
+    console.log('🛑 Stop button clicked - stopping polling');
+
+    // Abort any in-flight fetch requests immediately
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      console.log('🛑 Aborted in-flight polling requests');
+    }
+
+    // Get scanId from state or localStorage as fallback
+    let scanIdToStop = activeScanId;
+
+    if (!scanIdToStop) {
+      // Try to get from localStorage
+      const persistedScan = localStorage.getItem('activeScan');
+      if (persistedScan) {
+        try {
+          const parsed = JSON.parse(persistedScan);
+          scanIdToStop = parsed.scanId;
+        } catch (e) {
+          console.error('Failed to parse activeScan from localStorage');
+        }
+      }
+    }
+
+    if (!scanIdToStop) {
+      console.log('⏳ No scan ID yet - scan still initializing, stopping polling only');
+      // Stop polling and clear UI even if we don't have a scan ID yet
+      stopPollingRef.current = true;
+      setLoadingStage('Stopping scan...');
+      setTimeout(() => {
+        setLoading(false);
+        setActiveScanId(null);
+        setScanUrl('');
+        setLoadingProgress(0);
+        setLoadingStage('');
+        localStorage.removeItem('activeScan');
+      }, 1000);
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login');
+      return;
+    }
+
+    console.log('🛑 Stopping scan:', scanIdToStop);
+    setLoadingStage('Stopping scan and restarting containers...');
 
     try {
-      console.log('🔍 Starting WebCheck scans for:', url);
-      setWebCheckLoading(true);
-      setWebCheckReport(null);
-      setWebCheckError(null);
-
-      // Run all scans in parallel
-      const results = await Promise.allSettled(
-        scanTypes.map(async (type) => {
-          try {
-            const res = await fetch(`${API_BASE}/api/webcheck/scan`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-auth-token': token
-              },
-              body: JSON.stringify({ url, type }),
-            });
-            const data = await res.json();
-            return { type, success: data.success, data: data.data || data };
-          } catch (err) {
-            return { type, success: false, error: err.message };
-          }
-        })
-      );
-
-      // Collect results
-      const scanResults = {};
-      results.forEach((result, index) => {
-        const type = scanTypes[index];
-        if (result.status === 'fulfilled' && result.value.success !== false) {
-          scanResults[type] = result.value.data;
-        } else {
-          scanResults[type] = { error: result.reason?.message || result.value?.error || 'Scan failed' };
+      const response = await fetch(`${API_BASE}/api/vt/stop-scan/${scanIdToStop}`, {
+        method: 'POST',
+        headers: {
+          'x-auth-token': token
         }
       });
 
-      setWebCheckReport(scanResults);
-      console.log('🔍 WebCheck scans complete:', Object.keys(scanResults).length, 'results');
+      const data = await response.json();
+      console.log('🛑 Stop response:', data);
+
+      if (data.success) {
+        setLoadingStage('Scan stopped - containers restarting for fresh environment');
+      } else {
+        console.error('Stop failed:', data);
+        setLoadingStage('Stop request sent...');
+      }
+
+      // Short delay to show the message before clearing
+      setTimeout(() => {
+        setLoading(false);
+        setActiveScanId(null);
+        setScanUrl('');
+        setLoadingProgress(0);
+        setLoadingStage('');
+        localStorage.removeItem('activeScan');
+      }, 2000);
+
     } catch (err) {
-      console.error('❌ WebCheck Error:', err);
-      setWebCheckError(err.message);
-    } finally {
-      setWebCheckLoading(false);
+      console.error('Stop error:', err);
+      setError('Failed to stop scan: ' + err.message);
+      setLoading(false);
     }
   };
+
+  // 🔄 Reusable polling function
+  const pollAnalysis = async (analysisId, token) => {
+    let attempts = 0;
+    const maxAttempts = 60;
+
+    const poll = async () => {
+      // Check if polling was stopped (user clicked Stop Scan)
+      if (stopPollingRef.current) {
+        console.log('🛑 Polling stopped by user');
+        return;
+      }
+
+      attempts++;
+      const progressIncrement = 60 / maxAttempts;
+      const currentProgress = Math.min(30 + (attempts * progressIncrement), 90);
+      setLoadingProgress(Math.floor(currentProgress));
+
+      try {
+        // Create new AbortController for this request
+        abortControllerRef.current = new AbortController();
+
+        const analysisRes = await fetch(`${API_BASE}/api/vt/combined-analysis/${analysisId}`, {
+          headers: { 'x-auth-token': token },
+          signal: abortControllerRef.current.signal
+        });
+        const analysisData = await analysisRes.json();
+        const status = analysisData.status;
+
+        // Check again if polling was stopped during the fetch
+        if (stopPollingRef.current) {
+          console.log('🛑 Polling stopped by user (after fetch)');
+          return;
+        }
+
+        // Progressive Loading: Update report with partial data
+        if (analysisData.target) {
+          setReport(prevReport => ({
+            ...prevReport,
+            ...analysisData,
+            isPartial: status !== 'completed'
+          }));
+        }
+
+        if (status === 'completed') {
+          setLoadingProgress(100);
+          setLoadingStage('Analysis complete!');
+          localStorage.removeItem('activeScan');
+          setActiveScanId(null);
+          setScanUrl('');
+          setTimeout(() => {
+            setLoading(false);
+            setLoadingProgress(0);
+            setLoadingStage('');
+          }, 500);
+        } else if (status === 'failed') {
+          localStorage.removeItem('activeScan');
+          setActiveScanId(null);
+          throw new Error('Analysis failed: ' + (analysisData.error || 'Unknown error'));
+        } else if (status === 'stopped') {
+          localStorage.removeItem('activeScan');
+          setActiveScanId(null);
+          setLoading(false);
+          setLoadingStage('Scan was stopped');
+        } else if (attempts >= maxAttempts) {
+          setLoading(false);
+          setLoadingProgress(0);
+          setLoadingStage('');
+          console.log('Max attempts reached, showing partial results');
+        } else {
+          // Show progress indicators based on what we have
+          let statusMessage = 'Analyzing...';
+          const hasVt = analysisData.hasVtResult;
+          const hasPsi = analysisData.hasPsiResult;
+          const hasObs = analysisData.hasObservatoryResult;
+          const hasZap = analysisData.hasZapResult;
+          const zapPending = analysisData.zapPending;
+          const hasAi = analysisData.hasRefinedReport;
+
+          if (!hasVt) statusMessage = '🔍 Running VirusTotal scan...';
+          else if (!hasPsi || !hasObs) statusMessage = '📊 Fetching PageSpeed & Observatory...';
+          else if (zapPending && analysisData.zapData) {
+            const zapPhase = analysisData.zapData.phase || 'scanning';
+            const zapProgress = analysisData.zapData.progress || 0;
+            statusMessage = `⚡ ZAP Security Scan: ${zapPhase} (${zapProgress}%)...`;
+          }
+          else if (!hasZap && !zapPending) statusMessage = '⚡ Starting ZAP security scan...';
+          else if (!hasAi) statusMessage = '🤖 Generating AI report (with all scan data)...';
+          else statusMessage = '✅ Finalizing results...';
+
+          setLoadingStage(statusMessage);
+          setTimeout(poll, 2000);
+        }
+      } catch (pollError) {
+        // If request was aborted (user clicked stop), exit gracefully
+        if (pollError.name === 'AbortError') {
+          console.log('🛑 Request aborted - scan was stopped by user');
+          return;
+        }
+        // If polling was stopped by user, don't throw - just exit gracefully
+        if (stopPollingRef.current) {
+          console.log('🛑 Polling error ignored - scan was stopped by user');
+          return;
+        }
+        console.error('Polling error:', pollError);
+        throw pollError;
+      }
+    };
+
+    await poll();
+  };
+
+  // 🔍 WebCheck scans now run entirely in backend - no frontend API calls needed
+  // Results come via the combined-analysis polling endpoint along with ZAP and other scans
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -175,19 +424,18 @@ const Hero = () => {
     setLoadingStage('Initializing scan...');
     setError(null);
     setReport(null);
+    setScanUrl(url);
+    stopPollingRef.current = false; // Reset stop flag for new scan
 
-    // ⚡ ZAP is now integrated in the backend combined scan
-    // No need to run independently - this ensures Gemini waits for ZAP completion
-
-    // 🔍 Trigger WebCheck Scans in background (Parallel)
-    runWebCheckScans(url, token);
+    // ⚡ ZAP and WebCheck are now both integrated in the backend combined scan
+    // Backend triggers both scans independently and saves results to MongoDB
+    // Frontend just polls and displays whatever data is available
 
     try {
       console.log('🔍 Submitting URL for scan:', url);
       setLoadingProgress(10);
       setLoadingStage('Submitting URL to security scanners...');
 
-      // 👇 FIXED: Use API_BASE (port 3001)
       const res = await fetch(`${API_BASE}/api/vt/combined-url-scan`, {
         method: 'POST',
         headers: {
@@ -213,84 +461,27 @@ const Hero = () => {
       const analysisId = data.analysisId || data.data?.id;
       if (!analysisId) throw new Error("No analysisId in response");
 
+      // 🔄 Persist scan to localStorage for resume on page refresh
+      setActiveScanId(analysisId);
+      localStorage.setItem('activeScan', JSON.stringify({
+        scanId: analysisId,
+        url,
+        timestamp: Date.now()
+      }));
+
       setLoadingProgress(30);
       setLoadingStage('Running VirusTotal security scan...');
 
-      let attempts = 0;
-      const maxAttempts = 60; // 2 minutes total with 2s intervals
+      // Check if stop was clicked during the initial API call
+      if (stopPollingRef.current) {
+        console.log('🛑 Scan was stopped during initialization');
+        setLoading(false);
+        localStorage.removeItem('activeScan');
+        return;
+      }
 
-      const pollAnalysis = async () => {
-        attempts++;
-        const progressIncrement = 60 / maxAttempts;
-        const currentProgress = Math.min(30 + (attempts * progressIncrement), 90);
-        setLoadingProgress(Math.floor(currentProgress));
-
-        try {
-          // 👇 FIXED: Use API_BASE (port 3001)
-          const analysisRes = await fetch(`${API_BASE}/api/vt/combined-analysis/${analysisId}`, {
-            headers: { 'x-auth-token': token }
-          });
-          const analysisData = await analysisRes.json();
-          const status = analysisData.status;
-
-          // 🚀 Progressive Loading: Update report with partial data
-          if (analysisData.target) {
-            setReport(prevReport => ({
-              ...prevReport,
-              ...analysisData,
-              // Keep loading state indicators
-              isPartial: status !== 'completed'
-            }));
-          }
-
-          if (status === 'completed') {
-            setLoadingProgress(100);
-            setLoadingStage('Analysis complete!');
-            setTimeout(() => {
-              setLoading(false);
-              setLoadingProgress(0);
-              setLoadingStage('');
-            }, 500);
-          } else if (status === 'failed') {
-            throw new Error('Analysis failed: ' + (analysisData.error || 'Unknown error'));
-          } else if (attempts >= maxAttempts) {
-            // Don't throw error - just stop loading, show partial results
-            setLoading(false);
-            setLoadingProgress(0);
-            setLoadingStage('');
-            console.log('Max attempts reached, showing partial results');
-          } else {
-            // Show progress indicators based on what we have
-            let statusMessage = 'Analyzing...';
-            const hasVt = analysisData.hasVtResult;
-            const hasPsi = analysisData.hasPsiResult;
-            const hasObs = analysisData.hasObservatoryResult;
-            const hasZap = analysisData.hasZapResult;
-            const zapPending = analysisData.zapPending;
-            const hasAi = analysisData.hasRefinedReport;
-
-            if (!hasVt) statusMessage = '🔍 Running VirusTotal scan...';
-            else if (!hasPsi || !hasObs) statusMessage = '📊 Fetching PageSpeed & Observatory...';
-            else if (zapPending && analysisData.zapData) {
-              // Show ZAP progress
-              const zapPhase = analysisData.zapData.phase || 'scanning';
-              const zapProgress = analysisData.zapData.progress || 0;
-              statusMessage = `⚡ ZAP Security Scan: ${zapPhase} (${zapProgress}%)...`;
-            }
-            else if (!hasZap && !zapPending) statusMessage = '⚡ Starting ZAP security scan...';
-            else if (!hasAi) statusMessage = '🤖 Generating AI report (with all scan data)...';
-            else statusMessage = '✅ Finalizing results...';
-
-            setLoadingStage(statusMessage);
-            setTimeout(pollAnalysis, 2000);
-          }
-        } catch (pollError) {
-          console.error('Polling error:', pollError);
-          throw pollError;
-        }
-      };
-
-      await pollAnalysis();
+      // Use the reusable polling function
+      await pollAnalysis(analysisId, token);
 
     } catch (err) {
       console.error('Analysis error:', err);
@@ -301,6 +492,8 @@ const Hero = () => {
       setError(errorMessage);
       setLoading(false);
       setLoadingProgress(0);
+      localStorage.removeItem('activeScan');
+      setActiveScanId(null);
     }
   };
 
@@ -380,6 +573,15 @@ const Hero = () => {
         zapPendingMessage = backendZapData.message || 'Scan failed';
       }
     }
+
+    // 🔍 WebCheck data - now comes from backend via polling
+    // Structure: { status: 'running'|'completed'|'failed', results: {...}, progress: 0-100 }
+    const backendWebCheckData = report?.webCheckData;
+    const webCheckReport = backendWebCheckData?.status === 'completed'
+      ? backendWebCheckData.results
+      : (backendWebCheckData?.partialResults || {});
+    const webCheckLoading = backendWebCheckData?.status === 'running';
+    const webCheckError = backendWebCheckData?.status === 'failed';
 
     return (
       <div className="report-container">
@@ -1204,6 +1406,77 @@ const Hero = () => {
           </details>
         )}
 
+        {/* 🌐 URLScan.io Detailed Results */}
+        {report?.hasUrlscanResult && report?.urlscanData && (
+          <details style={{ marginBottom: '2rem' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 'bold', padding: '1rem', background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', borderRadius: '8px', border: '1px solid #00d084' }}>
+              🌐 View URLScan.io Analysis
+            </summary>
+            <div style={{ marginTop: '1rem', display: 'grid', gap: '1rem' }}>
+
+              {/* Security Verdict */}
+              <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
+                <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>🛡️ Security Verdict</h5>
+                <p><b>Overall:</b> <span style={{ color: report.urlscanData.verdicts?.overall?.malicious ? '#e81123' : '#00d084', fontWeight: 'bold' }}>
+                  {report.urlscanData.verdicts?.overall?.malicious ? 'MALICIOUS' : 'CLEAN'}
+                </span></p>
+                <p><b>Threat Score:</b> {report.urlscanData.verdicts?.overall?.score || 0}</p>
+                {report.urlscanData.verdicts?.urlscan?.score > 0 && (
+                  <p><b>URLScan Score:</b> {report.urlscanData.verdicts.urlscan.score}</p>
+                )}
+                {report.urlscanData.verdicts?.engines?.malicious > 0 && (
+                  <p><b>Engine Detections:</b> <span style={{ color: '#e81123' }}>{report.urlscanData.verdicts.engines.malicious} malicious</span></p>
+                )}
+                {report.urlscanData.verdicts?.community?.score > 0 && (
+                  <p><b>Community Score:</b> {report.urlscanData.verdicts.community.score}</p>
+                )}
+              </div>
+
+              {/* Page Information */}
+              {report.urlscanData.page && (
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📄 Page Information</h5>
+                  <p><b>Domain:</b> {report.urlscanData.page.domain || 'N/A'}</p>
+                  <p><b>IP Address:</b> {report.urlscanData.page.ip || 'N/A'}</p>
+                  <p><b>Country:</b> {report.urlscanData.page.country || 'N/A'}</p>
+                  <p><b>Server:</b> {report.urlscanData.page.server || 'N/A'}</p>
+                  {report.urlscanData.page.tlsIssuer && (
+                    <p><b>TLS Issuer:</b> {report.urlscanData.page.tlsIssuer}</p>
+                  )}
+                  {report.urlscanData.page.tlsValidDays && (
+                    <p><b>TLS Valid Days:</b> {report.urlscanData.page.tlsValidDays}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Network Statistics */}
+              {report.urlscanData.stats && (
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px' }}>
+                  <h5 style={{ margin: '0 0 0.5rem 0', color: 'var(--accent)' }}>📊 Network Statistics</h5>
+                  <p><b>HTTP Requests:</b> {report.urlscanData.stats.requests || 0}</p>
+                  <p><b>Unique IPs:</b> {report.urlscanData.stats.uniqIPs || 0}</p>
+                  <p><b>Unique Countries:</b> {report.urlscanData.stats.uniqCountries || 0}</p>
+                  <p><b>Data Transferred:</b> {report.urlscanData.stats.dataLength ? `${(report.urlscanData.stats.dataLength / 1024).toFixed(1)} KB` : 'N/A'}</p>
+                </div>
+              )}
+
+              {/* View Full Report Link */}
+              {report.urlscanData.reportUrl && (
+                <div style={{ background: theme === 'light' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.65)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                  <a
+                    href={report.urlscanData.reportUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'var(--accent)', textDecoration: 'underline', fontWeight: 'bold', fontSize: '1rem' }}
+                  >
+                    View Full URLScan.io Report ↗
+                  </a>
+                </div>
+              )}
+            </div>
+          </details>
+        )}
+
         {/* Existing VirusTotal Summary */}
         <div className="report-summary">
           <h4>🔒 VirusTotal Security Details</h4>
@@ -1321,11 +1594,16 @@ const Hero = () => {
         <form className="analyze-form" onSubmit={handleSubmit}>
           <label htmlFor="url-input">Enter a URL to start 👇</label>
           <div className="input-wrapper">
-            <input id="url-input" name="url" type="text" placeholder="E.g. https://google.com" defaultValue="https://google.com" required />
-            <button type="submit" disabled={loading} className={loading ? 'analyzing' : ''} style={{ '--progress': `${loadingProgress}%` }}>
-              {loading && <div className="progress-percentage">{loadingProgress}%</div>}
-              <span className="button-text">{loading ? 'Analyzing...' : 'Analyze URL'}</span>
-            </button>
+            <input id="url-input" name="url" type="text" placeholder="E.g. https://google.com" defaultValue={scanUrl || "https://google.com"} required disabled={loading} />
+            {!loading ? (
+              <button type="submit" className="analyze-button">
+                <span className="button-text">Analyze URL</span>
+              </button>
+            ) : (
+              <button type="button" onClick={handleStopScan} className="stop-button">
+                <span className="button-text">Stop Scan</span>
+              </button>
+            )}
           </div>
         </form>
         {renderReport()}

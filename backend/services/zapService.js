@@ -628,9 +628,22 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
       });
 
       spiderProgress = parseInt(statusResponse.data.status);
+
+      // Get current URL count during spider
+      let currentUrlCount = 0;
+      try {
+        const spiderUrlsResponse = await zapApi.get('/JSON/spider/view/results/', {
+          params: { scanId: spiderScanId }
+        });
+        currentUrlCount = spiderUrlsResponse.data.results?.length || 0;
+      } catch (err) {
+        console.warn('⚠️ Could not get spider URL count');
+      }
+
       const uiProgress = 10 + Math.floor(spiderProgress * 0.2); // 10% to 30%
       await updateProgress('spidering', uiProgress, {
-        message: `Crawling pages: ${spiderProgress}%`
+        message: `Crawling pages: ${currentUrlCount} URLs found (${spiderProgress}%)`,
+        urlsFound: currentUrlCount
       });
     }
 
@@ -646,10 +659,46 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
     console.log(`🕷️ Spider complete: ${spiderUrls} URLs found`);
 
     // Phase 2.5: AJAX Spider (for JavaScript-heavy sites)
-    await updateProgress('ajax_spider', 32, { message: 'Crawling with AJAX spider...' });
-    console.log('🌐 Starting AJAX spider for JavaScript content...');
+    await updateProgress('ajax_spider', 32, { message: 'Configuring AJAX spider...' });
+    console.log('🌐 Configuring AJAX spider for JavaScript content...');
 
     try {
+      // Configure AJAX Spider for maximum discovery
+      const ajaxConfig = {
+        maxDuration: spiderConfig.maxDuration || 5, // Use same duration as traditional spider
+        maxCrawlDepth: 10, // Deep crawling
+        numberOfBrowsers: 4, // Parallel browsers for speed
+        clickDefaultElems: true, // Click buttons, links etc
+        clickElemsOnce: false, // Click elements multiple times for different states
+        randomInputs: true // Try random inputs in forms
+      };
+
+      // Apply AJAX spider configuration
+      await zapApi.get('/JSON/ajaxSpider/action/setOptionMaxDuration/', {
+        params: { Integer: ajaxConfig.maxDuration }
+      });
+      await zapApi.get('/JSON/ajaxSpider/action/setOptionMaxCrawlDepth/', {
+        params: { Integer: ajaxConfig.maxCrawlDepth }
+      });
+      await zapApi.get('/JSON/ajaxSpider/action/setOptionNumberOfBrowsers/', {
+        params: { Integer: ajaxConfig.numberOfBrowsers }
+      });
+      await zapApi.get('/JSON/ajaxSpider/action/setOptionBrowserId/', {
+        params: { String: 'firefox-headless' }
+      });
+      await zapApi.get('/JSON/ajaxSpider/action/setOptionClickDefaultElems/', {
+        params: { Boolean: ajaxConfig.clickDefaultElems }
+      });
+      await zapApi.get('/JSON/ajaxSpider/action/setOptionClickElemsOnce/', {
+        params: { Boolean: ajaxConfig.clickElemsOnce }
+      });
+      await zapApi.get('/JSON/ajaxSpider/action/setOptionRandomInputs/', {
+        params: { Boolean: ajaxConfig.randomInputs }
+      });
+
+      console.log('✅ AJAX Spider configured for maximum discovery');
+      await updateProgress('ajax_spider', 32, { message: 'Starting AJAX spider...' });
+
       const ajaxSpiderResponse = await zapApi.get('/JSON/ajaxSpider/action/scan/', {
         params: {
           url: targetUrl,
@@ -673,7 +722,32 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
         try {
           const ajaxStatusResponse = await zapApi.get('/JSON/ajaxSpider/view/status/');
           ajaxSpiderProgress = ajaxStatusResponse.data.status;
-          console.log(`🌐 AJAX Spider: ${ajaxSpiderProgress}`);
+
+          // Get current URL count during AJAX spider
+          let currentUrlCount = 0;
+          try {
+            const ajaxUrlsResponse = await zapApi.get('/JSON/ajaxSpider/view/results/', {
+              params: { start: 0, count: 10000 }
+            });
+            currentUrlCount = ajaxUrlsResponse.data.results?.length || 0;
+          } catch (err) {
+            // Fallback to numberOfResults API
+            try {
+              const countResponse = await zapApi.get('/JSON/ajaxSpider/view/numberOfResults/');
+              currentUrlCount = countResponse.data.numberOfResults || 0;
+            } catch (countErr) {
+              console.warn('⚠️ Could not get AJAX spider URL count');
+            }
+          }
+
+          console.log(`🌐 AJAX Spider: ${ajaxSpiderProgress} | URLs: ${currentUrlCount}`);
+
+          // Update progress with URL count
+          const ajaxProgress = Math.min(32 + Math.floor((ajaxSpiderIterations / maxAjaxSpiderIterations) * 3), 34);
+          await updateProgress('ajax_spider', ajaxProgress, {
+            message: `AJAX Spider: ${currentUrlCount} URLs found`,
+            urlsFound: currentUrlCount
+          });
 
           if (ajaxSpiderProgress === 'stopped') {
             break;
@@ -1223,9 +1297,22 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
       });
 
       spiderProgress = parseInt(statusResponse.data.status);
+
+      // Get current URL count during spider
+      let currentUrlCount = 0;
+      try {
+        const spiderUrlsResponse = await zapApi.get('/JSON/spider/view/results/', {
+          params: { scanId: spiderScanId }
+        });
+        currentUrlCount = spiderUrlsResponse.data.results?.length || 0;
+      } catch (err) {
+        console.warn('⚠️ Could not get spider URL count');
+      }
+
       const uiProgress = 10 + Math.floor(spiderProgress * 0.2); // 10% to 30%
       await updateProgress('spidering', uiProgress, {
-        message: `Crawling pages: ${spiderProgress}%`
+        message: `Crawling pages: ${currentUrlCount} URLs found (${spiderProgress}%)`,
+        urlsFound: currentUrlCount
       });
     }
 
@@ -1593,6 +1680,352 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
   }
 }
 
+/**
+ * Stop a running ZAP scan and restart the Docker container for a fresh instance
+ * @param {string} scanId - Scan ID to stop
+ * @param {string} userId - User ID requesting the stop
+ * @returns {Promise<Object>} Result of stop operation
+ */
+async function stopZapScan(scanId, userId) {
+  try {
+    // Verify the scan exists and belongs to the user
+    const scan = await ScanResult.findOne({
+      analysisId: scanId,
+      userId: userId
+    });
+
+    if (!scan) {
+      throw new Error('Scan not found or access denied');
+    }
+
+    // Check if scan is still running
+    if (scan.status === 'completed' || scan.status === 'failed') {
+      return { message: 'Scan already completed or failed', status: scan.status };
+    }
+
+    console.log(`🛑 Stopping ZAP scan: ${scanId}`);
+
+    // Stop all active ZAP scans (spider, ajax spider, active scan)
+    try {
+      // Stop spider scans
+      const spiderScansResponse = await zapApi.get('/JSON/spider/view/scans/');
+      const spiderScans = spiderScansResponse.data.scans || [];
+      for (const spiderScan of spiderScans) {
+        if (spiderScan.state === 'RUNNING') {
+          await zapApi.get('/JSON/spider/action/stop/', {
+            params: { scanId: spiderScan.id }
+          });
+          console.log(`🛑 Stopped spider scan: ${spiderScan.id}`);
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not stop spider scans:', err.message);
+    }
+
+    try {
+      // Stop AJAX spider
+      const ajaxStatusResponse = await zapApi.get('/JSON/ajaxSpider/view/status/');
+      if (ajaxStatusResponse.data.status === 'running') {
+        await zapApi.get('/JSON/ajaxSpider/action/stop/');
+        console.log('🛑 Stopped AJAX spider');
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not stop AJAX spider:', err.message);
+    }
+
+    try {
+      // Stop active scans
+      const activeScansResponse = await zapApi.get('/JSON/ascan/view/scans/');
+      const activeScans = activeScansResponse.data.scans || [];
+      for (const activeScan of activeScans) {
+        if (activeScan.state === 'RUNNING') {
+          await zapApi.get('/JSON/ascan/action/stop/', {
+            params: { scanId: activeScan.id }
+          });
+          console.log(`🛑 Stopped active scan: ${activeScan.id}`);
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not stop active scans:', err.message);
+    }
+
+    // Update database to mark scan as stopped
+    await ScanResult.updateOne(
+      { analysisId: scanId },
+      {
+        $set: {
+          status: 'stopped',
+          'zapResult.status': 'stopped',
+          'zapResult.phase': 'stopped',
+          'zapResult.message': 'Scan stopped by user - restarting ZAP container...',
+          stoppedAt: new Date(),
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    console.log(`✅ ZAP scan stopped successfully: ${scanId}`);
+
+    // Restart Docker container for fresh ZAP instance
+    console.log('🔄 Restarting ZAP Docker container for fresh instance...');
+    await restartZapContainer();
+
+    return { message: 'Scan stopped and ZAP container restarted successfully', scanId, containerRestarted: true };
+
+  } catch (error) {
+    console.error('❌ Error stopping ZAP scan:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Restart the ZAP Docker container to get a fresh instance
+ * @returns {Promise<Object>} Result of restart operation
+ */
+async function restartZapContainer() {
+  const { exec } = require('child_process');
+  const util = require('util');
+  const execPromise = util.promisify(exec);
+
+  const containerName = 'zap-scanner';
+
+  try {
+    console.log(`🔄 Restarting Docker container: ${containerName}`);
+
+    // Restart the ZAP container
+    await execPromise(`docker restart ${containerName}`);
+    console.log(`✅ Docker container ${containerName} restart initiated`);
+
+    // Wait for container to be healthy (max 90 seconds)
+    console.log('⏳ Waiting for ZAP container to be ready...');
+    let healthy = false;
+    let attempts = 0;
+    const maxAttempts = 30; // 30 attempts * 3 seconds = 90 seconds max
+
+    while (!healthy && attempts < maxAttempts) {
+      await sleep(3000); // Wait 3 seconds between checks
+      attempts++;
+
+      try {
+        // Check if ZAP API is responding
+        const healthCheck = await zapApi.get('/JSON/core/view/version/', {
+          timeout: 5000 // 5 second timeout for health check
+        });
+
+        if (healthCheck.data && healthCheck.data.version) {
+          healthy = true;
+          console.log(`✅ ZAP container is healthy (v${healthCheck.data.version}) after ${attempts * 3} seconds`);
+        }
+      } catch (healthError) {
+        console.log(`⏳ Waiting for ZAP... (attempt ${attempts}/${maxAttempts})`);
+      }
+    }
+
+    if (!healthy) {
+      console.warn('⚠️ ZAP container may not be fully ready yet. It should become available shortly.');
+      return { success: true, warning: 'Container restarted but health check timed out', containerName };
+    }
+
+    return { success: true, containerName, message: 'Container restarted and healthy' };
+
+  } catch (error) {
+    console.error('❌ Failed to restart ZAP container:', error.message);
+
+    // Don't throw - the scan was still stopped, just container restart failed
+    return {
+      success: false,
+      error: error.message,
+      containerName,
+      message: 'Scan stopped but container restart failed. You may need to restart manually.'
+    };
+  }
+}
+
+/**
+ * Restart the WebCheck Docker container to stop pending requests
+ * @returns {Promise<Object>} Result of restart operation
+ */
+async function restartWebCheckContainer() {
+  const { exec } = require('child_process');
+  const util = require('util');
+  const execPromise = util.promisify(exec);
+
+  const containerName = 'ssdt-webcheck';
+
+  try {
+    console.log(`🔄 Restarting Docker container: ${containerName}`);
+
+    // Restart the WebCheck container
+    await execPromise(`docker restart ${containerName}`);
+    console.log(`✅ Docker container ${containerName} restart initiated`);
+
+    // Wait for container to be healthy (max 60 seconds)
+    console.log('⏳ Waiting for WebCheck container to be ready...');
+    let healthy = false;
+    let attempts = 0;
+    const maxAttempts = 20; // 20 attempts * 3 seconds = 60 seconds max
+
+    while (!healthy && attempts < maxAttempts) {
+      await sleep(3000); // Wait 3 seconds between checks
+      attempts++;
+
+      try {
+        // Check if WebCheck API is responding
+        const healthCheck = await axios.get('http://localhost:3002/health', {
+          timeout: 5000 // 5 second timeout for health check
+        });
+
+        if (healthCheck.data && healthCheck.data.status === 'healthy') {
+          healthy = true;
+          console.log(`✅ WebCheck container is healthy after ${attempts * 3} seconds`);
+        }
+      } catch (healthError) {
+        console.log(`⏳ Waiting for WebCheck... (attempt ${attempts}/${maxAttempts})`);
+      }
+    }
+
+    if (!healthy) {
+      console.warn('⚠️ WebCheck container may not be fully ready yet. It should become available shortly.');
+      return { success: true, warning: 'Container restarted but health check timed out', containerName };
+    }
+
+    return { success: true, containerName, message: 'Container restarted and healthy' };
+
+  } catch (error) {
+    console.error('❌ Failed to restart WebCheck container:', error.message);
+
+    return {
+      success: false,
+      error: error.message,
+      containerName,
+      message: 'Container restart failed. You may need to restart manually.'
+    };
+  }
+}
+
+/**
+ * Stop a combined scan and restart all Docker containers for fresh instances
+ * This stops ZAP scans, restarts ZAP container, and restarts WebCheck container
+ * @param {string} scanId - Scan ID to stop
+ * @param {string} userId - User ID requesting the stop
+ * @returns {Promise<Object>} Result of stop operation
+ */
+async function stopCombinedScan(scanId, userId) {
+  try {
+    // Verify the scan exists and belongs to the user
+    const scan = await ScanResult.findOne({
+      analysisId: scanId,
+      userId: userId
+    });
+
+    if (!scan) {
+      throw new Error('Scan not found or access denied');
+    }
+
+    // Check if scan is still running
+    if (scan.status === 'completed' || scan.status === 'failed') {
+      return { message: 'Scan already completed or failed', status: scan.status };
+    }
+
+    console.log(`🛑 Stopping combined scan: ${scanId}`);
+
+    // Stop all active ZAP scans (spider, ajax spider, active scan)
+    try {
+      // Stop spider scans
+      const spiderScansResponse = await zapApi.get('/JSON/spider/view/scans/');
+      const spiderScans = spiderScansResponse.data.scans || [];
+      for (const spiderScan of spiderScans) {
+        if (spiderScan.state === 'RUNNING') {
+          await zapApi.get('/JSON/spider/action/stop/', {
+            params: { scanId: spiderScan.id }
+          });
+          console.log(`🛑 Stopped spider scan: ${spiderScan.id}`);
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not stop spider scans:', err.message);
+    }
+
+    try {
+      // Stop AJAX spider
+      const ajaxStatusResponse = await zapApi.get('/JSON/ajaxSpider/view/status/');
+      if (ajaxStatusResponse.data.status === 'running') {
+        await zapApi.get('/JSON/ajaxSpider/action/stop/');
+        console.log('🛑 Stopped AJAX spider');
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not stop AJAX spider:', err.message);
+    }
+
+    try {
+      // Stop active scans
+      const activeScansResponse = await zapApi.get('/JSON/ascan/view/scans/');
+      const activeScans = activeScansResponse.data.scans || [];
+      for (const activeScan of activeScans) {
+        if (activeScan.state === 'RUNNING') {
+          await zapApi.get('/JSON/ascan/action/stop/', {
+            params: { scanId: activeScan.id }
+          });
+          console.log(`🛑 Stopped active scan: ${activeScan.id}`);
+        }
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not stop active scans:', err.message);
+    }
+
+    // Update database to mark scan as stopped
+    // Use full object replacement to avoid MongoDB nested field errors when zapResult is null
+    await ScanResult.updateOne(
+      { analysisId: scanId },
+      {
+        $set: {
+          status: 'stopped',
+          zapResult: {
+            status: 'stopped',
+            phase: 'stopped',
+            message: 'Scan stopped by user - restarting containers...',
+            stoppedAt: new Date()
+          },
+          stoppedAt: new Date(),
+          updatedAt: new Date()
+        }
+      }
+    );
+
+    console.log(`✅ Scan stopped in database: ${scanId}`);
+
+    // Restart both Docker containers in parallel for fresh instances
+    console.log('🔄 Restarting ZAP and WebCheck Docker containers for fresh instances...');
+
+    const [zapRestartResult, webCheckRestartResult] = await Promise.allSettled([
+      restartZapContainer(),
+      restartWebCheckContainer()
+    ]);
+
+    const zapRestarted = zapRestartResult.status === 'fulfilled' && zapRestartResult.value.success;
+    const webCheckRestarted = webCheckRestartResult.status === 'fulfilled' && webCheckRestartResult.value.success;
+
+    console.log(`✅ Container restart results:`);
+    console.log(`   ZAP: ${zapRestarted ? 'Success' : 'Failed'}`);
+    console.log(`   WebCheck: ${webCheckRestarted ? 'Success' : 'Failed'}`);
+
+    return {
+      message: 'Scan stopped and containers restarted successfully',
+      scanId,
+      containersRestarted: {
+        zap: zapRestarted,
+        webCheck: webCheckRestarted
+      },
+      zapRestartResult: zapRestartResult.status === 'fulfilled' ? zapRestartResult.value : { error: zapRestartResult.reason?.message },
+      webCheckRestartResult: webCheckRestartResult.status === 'fulfilled' ? webCheckRestartResult.value : { error: webCheckRestartResult.reason?.message }
+    };
+
+  } catch (error) {
+    console.error('❌ Error stopping combined scan:', error.message);
+    throw error;
+  }
+}
+
 // ============================================================================
 // EXPORTS
 // ============================================================================
@@ -1605,6 +2038,10 @@ module.exports = {
   downloadDetailedReport,
   groupAlertsByUrl,
   createDualVersionAlerts,
-  startAsyncZapScan, // NEW: For combined scan async flow
-  runZapScan: runZapScanWithUrlTracking // Backward compatibility alias
+  startAsyncZapScan, // For combined scan async flow
+  runZapScan: runZapScanWithUrlTracking, // Backward compatibility alias
+  stopZapScan, // Stop running ZAP scan and restart ZAP container
+  stopCombinedScan, // Stop combined scan and restart ALL containers (ZAP + WebCheck)
+  restartZapContainer, // Restart ZAP Docker container for fresh instance
+  restartWebCheckContainer // Restart WebCheck Docker container for fresh instance
 };

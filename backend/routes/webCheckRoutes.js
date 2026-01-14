@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const webCheckService = require('../services/webCheckService');
+const ScanResult = require('../models/ScanResult');
+const auth = require('../middleware/auth');
 
 // POST /api/webcheck/scan
 // Body: { url: "example.com", type: "ssl" }
@@ -64,6 +66,53 @@ router.get('/health', async (req, res) => {
         res.status(503).json({
             status: 'unhealthy',
             message: 'WebCheck service is not available. Start it with: docker-compose up webcheck'
+        });
+    }
+});
+
+// POST /api/webcheck/save-results
+// Save WebCheck results to a scan record in the database
+// This allows resuming scans after page refresh
+router.post('/save-results', auth, async (req, res) => {
+    try {
+        const { scanId, results } = req.body;
+
+        if (!scanId) {
+            return res.status(400).json({ error: 'Scan ID is required' });
+        }
+
+        if (!results || typeof results !== 'object') {
+            return res.status(400).json({ error: 'Results object is required' });
+        }
+
+        // Find the scan and verify ownership
+        const scan = await ScanResult.findOne({
+            analysisId: scanId,
+            userId: req.user.id
+        });
+
+        if (!scan) {
+            return res.status(404).json({ error: 'Scan not found or access denied' });
+        }
+
+        // Update the scan with WebCheck results
+        scan.webCheckResult = results;
+        scan.updatedAt = new Date();
+        await scan.save();
+
+        console.log(`✅ WebCheck results saved for scan: ${scanId}`);
+
+        res.json({
+            success: true,
+            message: 'WebCheck results saved successfully',
+            scanId: scanId
+        });
+
+    } catch (error) {
+        console.error('❌ Error saving WebCheck results:', error.message);
+        res.status(500).json({
+            error: 'Failed to save WebCheck results',
+            details: error.message
         });
     }
 });
