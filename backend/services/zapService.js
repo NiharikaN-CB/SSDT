@@ -583,6 +583,124 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
     }
     console.log(`✅ Configured ${excludedCount}/${exclusionPatterns.length} exclusion patterns`);
 
+    // Phase 1.5: Create ZAP context for domain scoping
+    // This prevents ZAP from crawling external domains (CDNs, analytics, social media, etc.)
+    await updateProgress('configuring', 4, { message: 'Setting up domain scope...' });
+    console.log('🔒 Configuring domain scope to filter external URLs...');
+
+    const contextName = `scan_${scanId}`;
+    let contextCreated = false;
+
+    try {
+      // Extract domain from target URL
+      const targetUrlObj = new URL(targetUrl);
+      const targetDomain = targetUrlObj.hostname;
+      const targetDomainEscaped = targetDomain.replace(/\./g, '\\.');
+
+      // Create a new context for this scan
+      await zapApi.get('/JSON/context/action/newContext/', {
+        params: { contextName }
+      });
+      console.log(`✅ Created ZAP context: ${contextName}`);
+
+      // Include only the target domain and its subdomains
+      const includePatterns = [
+        `https?://${targetDomainEscaped}.*`,           // Main domain
+        `https?://.*\\.${targetDomainEscaped}.*`       // Subdomains
+      ];
+
+      for (const pattern of includePatterns) {
+        try {
+          await zapApi.get('/JSON/context/action/includeInContext/', {
+            params: { contextName, regex: pattern }
+          });
+          console.log(`   ✓ Include: ${pattern}`);
+        } catch (err) {
+          console.warn(`   ⚠️ Failed to add include pattern: ${err.message}`);
+        }
+      }
+
+      // Exclude common external domains that ZAP tends to crawl
+      const excludeDomains = [
+        // Analytics & Tracking
+        '.*google-analytics\\.com.*',
+        '.*googletagmanager\\.com.*',
+        '.*doubleclick\\.net.*',
+        '.*facebook\\.com.*',
+        '.*facebook\\.net.*',
+        '.*twitter\\.com.*',
+        '.*linkedin\\.com.*',
+        '.*hotjar\\.com.*',
+        '.*mixpanel\\.com.*',
+        '.*segment\\.io.*',
+        '.*amplitude\\.com.*',
+        // CDNs
+        '.*cdn\\.jsdelivr\\.net.*',
+        '.*cdnjs\\.cloudflare\\.com.*',
+        '.*unpkg\\.com.*',
+        '.*cloudflare\\.com.*',
+        '.*fastly\\.net.*',
+        '.*akamaihd\\.net.*',
+        '.*akamai\\.net.*',
+        '.*cloudfront\\.net.*',
+        // Fonts & Icons
+        '.*fonts\\.googleapis\\.com.*',
+        '.*fonts\\.gstatic\\.com.*',
+        '.*use\\.fontawesome\\.com.*',
+        '.*use\\.typekit\\.net.*',
+        // Google Services
+        '.*google\\.com.*',
+        '.*gstatic\\.com.*',
+        '.*googleapis\\.com.*',
+        '.*googlesyndication\\.com.*',
+        '.*googleadservices\\.com.*',
+        // Social Media Embeds
+        '.*instagram\\.com.*',
+        '.*youtube\\.com.*',
+        '.*youtu\\.be.*',
+        '.*vimeo\\.com.*',
+        '.*tiktok\\.com.*',
+        // Other Common Third Parties
+        '.*jquery\\.com.*',
+        '.*bootstrapcdn\\.com.*',
+        '.*gravatar\\.com.*',
+        '.*wp\\.com.*',
+        '.*wordpress\\.com.*',
+        '.*stripe\\.com.*',
+        '.*paypal\\.com.*',
+        '.*recaptcha\\.net.*',
+        '.*hcaptcha\\.com.*',
+        // Auth Endpoints to prevent logout issues
+        '.*logout.*',
+        '.*signout.*',
+        '.*sign-out.*',
+        '.*/auth/logout.*'
+      ];
+
+      for (const pattern of excludeDomains) {
+        try {
+          await zapApi.get('/JSON/context/action/excludeFromContext/', {
+            params: { contextName, regex: pattern }
+          });
+        } catch (err) {
+          // Silently continue - some patterns may fail
+        }
+      }
+      console.log(`✅ Excluded ${excludeDomains.length} external domain patterns`);
+
+      // Set context in scope
+      await zapApi.get('/JSON/context/action/setContextInScope/', {
+        params: { contextName, booleanInScope: 'true' }
+      });
+
+      contextCreated = true;
+      console.log(`✅ Domain scope configured: Only crawling ${targetDomain}`);
+
+    } catch (contextError) {
+      console.warn('⚠️ Failed to create ZAP context:', contextError.message);
+      console.warn('⚠️ Scan will proceed without domain scoping (may crawl external URLs)');
+    }
+
     // Phase 2: Access the URL
     await updateProgress('accessing', 5);
     await zapApi.get('/JSON/core/action/accessUrl/', {
@@ -593,6 +711,9 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
     // Phase 2: Spider (Traditional crawling)
     await updateProgress('spidering', 10);
     console.log('🕷️ Starting traditional spider...');
+    if (contextCreated) {
+      console.log(`🔒 Spider will use context: ${contextName} (domain-scoped)`);
+    }
 
     // ENTERPRISE SPIDER CONFIG - comprehensive scanning for paid clients
     const spiderConfig = {
@@ -606,8 +727,8 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
         url: targetUrl,
         maxChildren: spiderConfig.maxChildren,
         recurse: true,
-        contextName: '',
-        subtreeOnly: false
+        contextName: contextCreated ? contextName : '',  // Use context if created
+        subtreeOnly: contextCreated  // Only scan subtree if context is set
       }
     });
 
@@ -697,18 +818,21 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
       });
 
       console.log('✅ AJAX Spider configured for maximum discovery');
+      if (contextCreated) {
+        console.log(`🔒 AJAX Spider will use context: ${contextName} (domain-scoped)`);
+      }
       await updateProgress('ajax_spider', 32, { message: 'Starting AJAX spider...' });
 
       const ajaxSpiderResponse = await zapApi.get('/JSON/ajaxSpider/action/scan/', {
         params: {
           url: targetUrl,
-          inScope: '',
-          contextName: '',
-          subtreeOnly: ''
+          inScope: contextCreated ? 'true' : '',     // Only scan in-scope URLs
+          contextName: contextCreated ? contextName : '',
+          subtreeOnly: contextCreated ? 'true' : ''
         }
       });
 
-      console.log(`🌐 AJAX Spider started`);
+      console.log(`🌐 AJAX Spider started${contextCreated ? ' (domain-scoped)' : ''}`);
 
       // Wait for AJAX spider to complete with timeout
       let ajaxSpiderProgress = 'running';
@@ -853,15 +977,19 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
       message: 'Starting active vulnerability testing...'
     });
     console.log('⚡ Starting active scan...');
+    if (contextCreated) {
+      console.log(`🔒 Active scan will use context: ${contextName} (domain-scoped)`);
+    }
 
     const activeScanResponse = await zapApi.get('/JSON/ascan/action/scan/', {
       params: {
         url: targetUrl,
         recurse: true,
-        inScopeOnly: false,
+        inScopeOnly: contextCreated,  // Only scan in-scope URLs when context is set
         scanPolicyName: '',
         method: '',
-        postData: ''
+        postData: '',
+        contextName: contextCreated ? contextName : ''
       }
     });
 
@@ -1029,6 +1157,18 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
     console.log(`   Alert types: ${summaryAlerts.length}`);
     console.log(`   Total occurrences: ${summaryAlerts.reduce((sum, a) => sum + a.totalOccurrences, 0)}`);
     console.log(`   Risk breakdown: High=${riskCounts.High}, Medium=${riskCounts.Medium}, Low=${riskCounts.Low}, Info=${riskCounts.Informational}`);
+
+    // Cleanup: Remove the ZAP context to avoid accumulation
+    if (contextCreated) {
+      try {
+        await zapApi.get('/JSON/context/action/removeContext/', {
+          params: { contextName }
+        });
+        console.log(`🧹 Cleaned up ZAP context: ${contextName}`);
+      } catch (cleanupError) {
+        console.warn('⚠️ Could not cleanup ZAP context:', cleanupError.message);
+      }
+    }
 
     return {
       success: true,
@@ -1252,6 +1392,124 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
     }
     console.log(`✅ [BACKGROUND] Configured ${excludedCount}/${exclusionPatterns.length} exclusion patterns`);
 
+    // Phase 1.5: Create ZAP context for domain scoping
+    // This prevents ZAP from crawling external domains (CDNs, analytics, social media, etc.)
+    await updateProgress('configuring', 4, { message: 'Setting up domain scope...' });
+    console.log('🔒 [BACKGROUND] Configuring domain scope to filter external URLs...');
+
+    const contextName = `scan_${scanId}`;
+    let contextCreated = false;
+
+    try {
+      // Extract domain from target URL
+      const targetUrlObj = new URL(targetUrl);
+      const targetDomain = targetUrlObj.hostname;
+      const targetDomainEscaped = targetDomain.replace(/\./g, '\\.');
+
+      // Create a new context for this scan
+      await zapApi.get('/JSON/context/action/newContext/', {
+        params: { contextName }
+      });
+      console.log(`✅ [BACKGROUND] Created ZAP context: ${contextName}`);
+
+      // Include only the target domain and its subdomains
+      const includePatterns = [
+        `https?://${targetDomainEscaped}.*`,           // Main domain
+        `https?://.*\\.${targetDomainEscaped}.*`       // Subdomains
+      ];
+
+      for (const pattern of includePatterns) {
+        try {
+          await zapApi.get('/JSON/context/action/includeInContext/', {
+            params: { contextName, regex: pattern }
+          });
+          console.log(`   ✓ [BACKGROUND] Include: ${pattern}`);
+        } catch (err) {
+          console.warn(`   ⚠️ [BACKGROUND] Failed to add include pattern: ${err.message}`);
+        }
+      }
+
+      // Exclude common external domains that ZAP tends to crawl
+      const excludeDomains = [
+        // Analytics & Tracking
+        '.*google-analytics\\.com.*',
+        '.*googletagmanager\\.com.*',
+        '.*doubleclick\\.net.*',
+        '.*facebook\\.com.*',
+        '.*facebook\\.net.*',
+        '.*twitter\\.com.*',
+        '.*linkedin\\.com.*',
+        '.*hotjar\\.com.*',
+        '.*mixpanel\\.com.*',
+        '.*segment\\.io.*',
+        '.*amplitude\\.com.*',
+        // CDNs
+        '.*cdn\\.jsdelivr\\.net.*',
+        '.*cdnjs\\.cloudflare\\.com.*',
+        '.*unpkg\\.com.*',
+        '.*cloudflare\\.com.*',
+        '.*fastly\\.net.*',
+        '.*akamaihd\\.net.*',
+        '.*akamai\\.net.*',
+        '.*cloudfront\\.net.*',
+        // Fonts & Icons
+        '.*fonts\\.googleapis\\.com.*',
+        '.*fonts\\.gstatic\\.com.*',
+        '.*use\\.fontawesome\\.com.*',
+        '.*use\\.typekit\\.net.*',
+        // Google Services
+        '.*google\\.com.*',
+        '.*gstatic\\.com.*',
+        '.*googleapis\\.com.*',
+        '.*googlesyndication\\.com.*',
+        '.*googleadservices\\.com.*',
+        // Social Media Embeds
+        '.*instagram\\.com.*',
+        '.*youtube\\.com.*',
+        '.*youtu\\.be.*',
+        '.*vimeo\\.com.*',
+        '.*tiktok\\.com.*',
+        // Other Common Third Parties
+        '.*jquery\\.com.*',
+        '.*bootstrapcdn\\.com.*',
+        '.*gravatar\\.com.*',
+        '.*wp\\.com.*',
+        '.*wordpress\\.com.*',
+        '.*stripe\\.com.*',
+        '.*paypal\\.com.*',
+        '.*recaptcha\\.net.*',
+        '.*hcaptcha\\.com.*',
+        // Auth Endpoints to prevent logout issues
+        '.*logout.*',
+        '.*signout.*',
+        '.*sign-out.*',
+        '.*/auth/logout.*'
+      ];
+
+      for (const pattern of excludeDomains) {
+        try {
+          await zapApi.get('/JSON/context/action/excludeFromContext/', {
+            params: { contextName, regex: pattern }
+          });
+        } catch (err) {
+          // Silently continue - some patterns may fail
+        }
+      }
+      console.log(`✅ [BACKGROUND] Excluded ${excludeDomains.length} external domain patterns`);
+
+      // Set context in scope
+      await zapApi.get('/JSON/context/action/setContextInScope/', {
+        params: { contextName, booleanInScope: 'true' }
+      });
+
+      contextCreated = true;
+      console.log(`✅ [BACKGROUND] Domain scope configured: Only crawling ${targetDomain}`);
+
+    } catch (contextError) {
+      console.warn('⚠️ [BACKGROUND] Failed to create ZAP context:', contextError.message);
+      console.warn('⚠️ [BACKGROUND] Scan will proceed without domain scoping');
+    }
+
     // Phase 2: Access the URL
     await updateProgress('accessing', 5, { message: 'Accessing target URL...' });
     await zapApi.get('/JSON/core/action/accessUrl/', {
@@ -1262,6 +1520,9 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
     // Phase 3: Spider (Traditional crawling)
     await updateProgress('spidering', 10, { message: 'Crawling website...' });
     console.log('🕷️ [BACKGROUND] Starting traditional spider...');
+    if (contextCreated) {
+      console.log(`🔒 [BACKGROUND] Spider will use context: ${contextName} (domain-scoped)`);
+    }
 
     // ENTERPRISE SPIDER CONFIG - comprehensive scanning for paid enterprise clients
     const spiderConfig = {
@@ -1275,8 +1536,8 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
         url: targetUrl,
         maxChildren: spiderConfig.maxChildren,
         recurse: true,
-        contextName: '',
-        subtreeOnly: false
+        contextName: contextCreated ? contextName : '',  // Use context if created
+        subtreeOnly: contextCreated  // Only scan subtree if context is set
       }
     });
 
@@ -1330,18 +1591,21 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
     // Phase 3.5: AJAX Spider (for JavaScript-heavy sites)
     await updateProgress('ajax_spider', 32, { message: 'Crawling with AJAX spider...' });
     console.log('🌐 [BACKGROUND] Starting AJAX spider for JavaScript content...');
+    if (contextCreated) {
+      console.log(`🔒 [BACKGROUND] AJAX Spider will use context: ${contextName} (domain-scoped)`);
+    }
 
     try {
       const ajaxSpiderResponse = await zapApi.get('/JSON/ajaxSpider/action/scan/', {
         params: {
           url: targetUrl,
-          inScope: '',
-          contextName: '',
-          subtreeOnly: ''
+          inScope: contextCreated ? 'true' : '',     // Only scan in-scope URLs
+          contextName: contextCreated ? contextName : '',
+          subtreeOnly: contextCreated ? 'true' : ''
         }
       });
 
-      console.log(`🌐 [BACKGROUND] AJAX Spider started`);
+      console.log(`🌐 [BACKGROUND] AJAX Spider started${contextCreated ? ' (domain-scoped)' : ''}`);
 
       // Wait for AJAX spider to complete with timeout
       let ajaxSpiderProgress = 'running';
@@ -1355,7 +1619,32 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
         try {
           const ajaxStatusResponse = await zapApi.get('/JSON/ajaxSpider/view/status/');
           ajaxSpiderProgress = ajaxStatusResponse.data.status;
-          console.log(`🌐 [BACKGROUND] AJAX Spider: ${ajaxSpiderProgress}`);
+
+          // Get current URL count during AJAX spider
+          let currentUrlCount = 0;
+          try {
+            const ajaxUrlsResponse = await zapApi.get('/JSON/ajaxSpider/view/results/', {
+              params: { start: 0, count: 10000 }
+            });
+            currentUrlCount = ajaxUrlsResponse.data.results?.length || 0;
+          } catch (err) {
+            // Fallback to numberOfResults API
+            try {
+              const countResponse = await zapApi.get('/JSON/ajaxSpider/view/numberOfResults/');
+              currentUrlCount = countResponse.data.numberOfResults || 0;
+            } catch (countErr) {
+              // Silently continue
+            }
+          }
+
+          console.log(`🌐 [BACKGROUND] AJAX Spider: ${ajaxSpiderProgress} | URLs: ${currentUrlCount}`);
+
+          // Update progress with URL count
+          const ajaxProgress = Math.min(32 + Math.floor((ajaxSpiderIterations / maxAjaxSpiderIterations) * 3), 34);
+          await updateProgress('ajax_spider', ajaxProgress, {
+            message: `AJAX Spider: ${currentUrlCount} URLs found`,
+            urlsFound: spiderUrls + currentUrlCount  // Combined count
+          });
 
           if (ajaxSpiderProgress === 'stopped') {
             break;
@@ -1369,7 +1658,7 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
       // Get AJAX spider results
       try {
         const ajaxResultsResponse = await zapApi.get('/JSON/ajaxSpider/view/results/', {
-          params: { start: 0, count: 1000 }
+          params: { start: 0, count: 10000 }
         });
         const ajaxUrls = ajaxResultsResponse.data.results?.length || 0;
         console.log(`🌐 [BACKGROUND] AJAX Spider complete: ${ajaxUrls} additional URLs found`);
@@ -1461,15 +1750,19 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
       message: 'Testing for vulnerabilities...'
     });
     console.log('⚡ [BACKGROUND] Starting active scan...');
+    if (contextCreated) {
+      console.log(`🔒 [BACKGROUND] Active scan will use context: ${contextName} (domain-scoped)`);
+    }
 
     const activeScanResponse = await zapApi.get('/JSON/ascan/action/scan/', {
       params: {
         url: targetUrl,
         recurse: true,
-        inScopeOnly: false,
+        inScopeOnly: contextCreated,  // Only scan in-scope URLs when context is set
         scanPolicyName: '',
         method: '',
-        postData: ''
+        postData: '',
+        contextName: contextCreated ? contextName : ''
       }
     });
 
@@ -1653,6 +1946,18 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
     console.log(`   Alert types: ${summaryAlerts.length}`);
     console.log(`   Total occurrences: ${summaryAlerts.reduce((sum, a) => sum + a.totalOccurrences, 0)}`);
     console.log(`   Risk breakdown: High=${riskCounts.High}, Medium=${riskCounts.Medium}, Low=${riskCounts.Low}, Info=${riskCounts.Informational}`);
+
+    // Cleanup: Remove the ZAP context to avoid accumulation
+    if (contextCreated) {
+      try {
+        await zapApi.get('/JSON/context/action/removeContext/', {
+          params: { contextName }
+        });
+        console.log(`🧹 [BACKGROUND] Cleaned up ZAP context: ${contextName}`);
+      } catch (cleanupError) {
+        console.warn('⚠️ [BACKGROUND] Could not cleanup ZAP context:', cleanupError.message);
+      }
+    }
 
   } catch (error) {
     console.error('❌ [BACKGROUND] ZAP scan failed:', error.message);

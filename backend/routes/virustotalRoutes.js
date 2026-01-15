@@ -722,15 +722,48 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         }
 
         // Save results so far (PSI, Observatory, urlscan complete, ZAP and WebCheck pending)
-        await scan.save();
+        // CRITICAL: Use $set to update only specific fields, NOT the entire document
+        // This prevents overwriting zapResult/webCheckResult that background scans may have updated
+        await ScanResult.updateOne(
+          { analysisId: id },
+          {
+            $set: {
+              status: 'combining',
+              pagespeedResult: scan.pagespeedResult,
+              observatoryResult: scan.observatoryResult,
+              urlscanResult: scan.urlscanResult,
+              // Only set initial zapResult if it was just started (not if it's already running/completed)
+              ...(zapNotStarted && scan.zapResult ? { zapResult: scan.zapResult } : {}),
+              // Only set initial webCheckResult if it was just started
+              ...(webCheckNotStarted && scan.webCheckResult ? { webCheckResult: scan.webCheckResult } : {}),
+              updatedAt: new Date()
+            }
+          }
+        );
         console.log('✅ Fast scans complete (PSI, Observatory, urlscan). ZAP and WebCheck running in background.');
+
+        // CRITICAL: Re-fetch the scan from DB to get the latest zapResult/webCheckResult
+        // Background scans may have completed while we were processing fast scans
+        scan = await ScanResult.findOne({ analysisId: id, userId: req.user.id });
+        if (!scan) {
+          return res.status(404).json({ error: 'Scan not found after update' });
+        }
 
         // DON'T generate Gemini report yet - wait for ZAP to complete
         // Frontend will poll and we'll check ZAP status on next request
       } catch (combineError) {
         console.error('❌ Error in combining step:', combineError);
+        // Use atomic update for error case to avoid overwriting background scan progress
+        await ScanResult.updateOne(
+          { analysisId: id },
+          {
+            $set: {
+              status: 'failed',
+              updatedAt: new Date()
+            }
+          }
+        );
         scan.status = 'failed';
-        await scan.save();
 
         return res.status(500).json({
           error: 'Failed to complete combined analysis',
@@ -775,19 +808,63 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           urlscanReport
         );
 
+        // Use atomic update for final completion to avoid race conditions
+        await ScanResult.updateOne(
+          { analysisId: id },
+          {
+            $set: {
+              refinedReport: aiReport,
+              status: 'completed',
+              updatedAt: new Date()
+            }
+          }
+        );
+        // Update local scan object for response
         scan.refinedReport = aiReport;
-        scan.status = 'completed'; // Mark entire scan as complete
-        await scan.save();
+        scan.status = 'completed';
 
         console.log('✅ Gemini AI report generated with all scan data!');
         console.log(`   Included ZAP data: ${zapReport ? 'Yes' : 'No (scan failed)'}`);
       } catch (geminiError) {
         console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
-        // Store fallback message
-        scan.refinedReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
-        scan.status = 'completed'; // Still mark as complete
-        await scan.save();
+        // Store fallback message using atomic update
+        const fallbackReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
+        await ScanResult.updateOne(
+          { analysisId: id },
+          {
+            $set: {
+              refinedReport: fallbackReport,
+              status: 'completed',
+              updatedAt: new Date()
+            }
+          }
+        );
+        // Update local scan object for response
+        scan.refinedReport = fallbackReport;
+        scan.status = 'completed';
       }
+    } else if (zapIsDone && !scan.refinedReport) {
+      // FALLBACK: ZAP is done but can't generate AI report (missing PageSpeed/Observatory)
+      // Still mark as completed so frontend shows results
+      console.log('⚠️ ZAP finished but cannot generate AI report - missing required scan data');
+      console.log(`   PageSpeed: ${scan.pagespeedResult ? 'Available' : 'MISSING'}`);
+      console.log(`   Observatory: ${scan.observatoryResult ? 'Available' : 'MISSING'}`);
+
+      const fallbackReport = 'AI analysis could not be generated - some scan data was unavailable. Please view individual scan results below.';
+      await ScanResult.updateOne(
+        { analysisId: id },
+        {
+          $set: {
+            refinedReport: fallbackReport,
+            status: 'completed',
+            updatedAt: new Date()
+          }
+        }
+      );
+      // Update local scan object for response
+      scan.refinedReport = fallbackReport;
+      scan.status = 'completed';
+      console.log('✅ Scan marked as completed (without full AI report)');
     }
 
     // STEP D: Return results (partial or complete)

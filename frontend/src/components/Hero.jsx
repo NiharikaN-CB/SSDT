@@ -298,7 +298,9 @@ const Hero = () => {
   // 🔄 Reusable polling function
   const pollAnalysis = async (analysisId, token) => {
     let attempts = 0;
-    const maxAttempts = 60;
+    // Increased from 60 to 450 attempts (15 minutes at 2-second intervals)
+    // ZAP scans can take 5-10+ minutes, so we need longer polling
+    const maxAttempts = 450;
 
     const poll = async () => {
       // Check if polling was stopped (user clicked Stop Scan)
