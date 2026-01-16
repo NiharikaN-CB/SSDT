@@ -50,6 +50,9 @@ const Hero = () => {
   // 🌐 Report Translation State
   const [translatedReport, setTranslatedReport] = useState(null);
   const [isTranslatingReport, setIsTranslatingReport] = useState(false);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState(0);
+  const [pdfProgressMessage, setPdfProgressMessage] = useState('');
 
   // Translate entire report when language changes
   useEffect(() => {
@@ -1544,45 +1547,142 @@ const Hero = () => {
           </table>
         </details>
 
-        {/* Download Complete JSON Report Button */}
+        {/* Download Reports Section */}
         {report?.analysisId && report?.status === 'completed' && (
           <div className="download-section">
-            <h4>📥 Download Complete Scan Data</h4>
+            <h4>📥 Download Scan Reports</h4>
             <p>
-              Download all scan results including VirusTotal, ZAP, PageSpeed, Observatory, URLScan, WebCheck, and AI analysis in JSON format
+              Download your complete security scan results in your preferred format
             </p>
-            <button
-              onClick={async () => {
-                try {
-                  const token = localStorage.getItem('token');
-                  const response = await fetch(`${API_BASE}/api/vt/download-complete-json/${report.analysisId}`, {
-                    headers: { 'x-auth-token': token }
-                  });
+            <div className="download-buttons">
+              <button
+                className="download-btn download-btn--pdf"
+                disabled={pdfDownloading}
+                onClick={async () => {
+                  try {
+                    setPdfDownloading(true);
+                    setPdfProgress(0);
+                    setPdfProgressMessage('Initializing PDF generation...');
 
-                  if (!response.ok) {
-                    throw new Error('Download failed');
+                    // Simulate progress since backend doesn't provide real-time updates
+                    const progressSteps = [
+                      { progress: 10, message: 'Formatting scan data (EN + JA)...', delay: 2000 },
+                      { progress: 25, message: 'Waiting for API rate limit...', delay: 8000 },
+                      { progress: 35, message: 'Still waiting...', delay: 10000 },
+                      { progress: 45, message: 'Formatting AI analysis...', delay: 15000 },
+                      { progress: 55, message: 'Waiting for API rate limit...', delay: 8000 },
+                      { progress: 65, message: 'Still waiting...', delay: 10000 },
+                      { progress: 75, message: 'Translating to Japanese...', delay: 15000 },
+                      { progress: 85, message: 'Rendering PDF document...', delay: 5000 },
+                      { progress: 95, message: 'Finalizing...', delay: 3000 },
+                    ];
+
+                    let currentStep = 0;
+                    const progressInterval = setInterval(() => {
+                      if (currentStep < progressSteps.length) {
+                        setPdfProgress(progressSteps[currentStep].progress);
+                        setPdfProgressMessage(progressSteps[currentStep].message);
+                        currentStep++;
+                      }
+                    }, 8000); // Update every 8 seconds
+
+                    const token = localStorage.getItem('token');
+                    const response = await fetch(`${API_BASE}/api/vt/download-pdf/${report.analysisId}`, {
+                      headers: { 'x-auth-token': token }
+                    });
+
+                    clearInterval(progressInterval);
+
+                    if (!response.ok) {
+                      const errorData = await response.json().catch(() => ({}));
+                      throw new Error(errorData.error || 'PDF download failed');
+                    }
+
+                    setPdfProgress(100);
+                    setPdfProgressMessage('Download complete!');
+
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `security_report_${report.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    console.log('✅ PDF report downloaded');
+
+                    // Reset after a short delay
+                    setTimeout(() => {
+                      setPdfDownloading(false);
+                      setPdfProgress(0);
+                      setPdfProgressMessage('');
+                    }, 2000);
+                  } catch (err) {
+                    console.error('❌ PDF download failed:', err);
+                    setPdfProgressMessage(`Error: ${err.message}`);
+                    setTimeout(() => {
+                      setPdfDownloading(false);
+                      setPdfProgress(0);
+                      setPdfProgressMessage('');
+                    }, 3000);
                   }
+                }}
+              >
+                {pdfDownloading ? '⏳ Generating...' : '📄 Download PDF Report'}
+              </button>
+              <button
+                className="download-btn download-btn--json"
+                disabled={pdfDownloading}
+                onClick={async () => {
+                  try {
+                    const token = localStorage.getItem('token');
+                    const response = await fetch(`${API_BASE}/api/vt/download-complete-json/${report.analysisId}`, {
+                      headers: { 'x-auth-token': token }
+                    });
 
-                  const blob = await response.blob();
-                  const url = window.URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `scan_report_${report.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.json`;
-                  document.body.appendChild(a);
-                  a.click();
-                  window.URL.revokeObjectURL(url);
-                  document.body.removeChild(a);
-                  console.log('✅ Complete JSON report downloaded');
-                } catch (err) {
-                  console.error('❌ Download failed:', err);
-                  alert('Failed to download report. Please try again.');
-                }
-              }}
-            >
-              📥 Download Complete JSON Report
-            </button>
+                    if (!response.ok) {
+                      throw new Error('Download failed');
+                    }
+
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `scan_report_${report.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    console.log('✅ Complete JSON report downloaded');
+                  } catch (err) {
+                    console.error('❌ Download failed:', err);
+                    alert('Failed to download report. Please try again.');
+                  }
+                }}
+              >
+                📥 Download JSON Data
+              </button>
+            </div>
+
+            {/* PDF Download Progress Bar */}
+            {pdfDownloading && (
+              <div className="pdf-progress-container">
+                <div className="pdf-progress-bar">
+                  <div
+                    className="pdf-progress-fill"
+                    style={{ width: `${pdfProgress}%` }}
+                  />
+                </div>
+                <p className="pdf-progress-message">{pdfProgressMessage}</p>
+                <p className="pdf-progress-note">
+                  PDF generation includes AI formatting and Japanese translation. This may take up to 2 minutes.
+                </p>
+              </div>
+            )}
+
             <p className="download-note">
-              Includes all raw scan data for further analysis
+              PDF: Professional bilingual report (EN + JA) | JSON: Raw data for analysis
             </p>
           </div>
         )}

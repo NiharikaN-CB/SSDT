@@ -417,6 +417,16 @@ body.dark {
     &:active {
       transform: translateY(0);
     }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+
+      &:hover {
+        transform: none;
+      }
+    }
   }
 
   .download-note {
@@ -424,6 +434,93 @@ body.dark {
     font-size: 0.8rem;
     color: var(--foreground-darker);
     font-style: italic;
+  }
+
+  .pdf-progress-container {
+    width: 100%;
+    max-width: 400px;
+    margin-top: 1.5rem;
+    text-align: center;
+
+    .pdf-progress-bar {
+      width: 100%;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 0.75rem;
+
+      .pdf-progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent), var(--accent-light));
+        border-radius: 4px;
+        transition: width 0.5s ease-out;
+      }
+    }
+
+    .pdf-progress-message {
+      margin: 0;
+      font-size: 0.9rem;
+      color: var(--accent-light);
+      font-weight: 600;
+    }
+
+    .pdf-progress-note {
+      margin: 0.5rem 0 0 0;
+      font-size: 0.75rem;
+      color: var(--foreground-darker);
+      font-style: italic;
+    }
+  }
+
+  .download-buttons {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .download-btn {
+    padding: 1rem 2rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    &--pdf {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: white;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+
+      &:hover {
+        background: linear-gradient(135deg, #f87171, #ef4444);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(239, 68, 68, 0.4);
+      }
+    }
+
+    &--json {
+      background: linear-gradient(135deg, var(--accent), var(--accent-light));
+      color: var(--background);
+      box-shadow: 0 4px 12px rgba(0, 176, 198, 0.3);
+
+      &:hover {
+        background: linear-gradient(135deg, var(--accent-light), #00d4e8);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(0, 176, 198, 0.4);
+      }
+    }
+
+    &:active {
+      transform: translateY(0);
+    }
   }
 }
 

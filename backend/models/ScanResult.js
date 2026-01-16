@@ -49,6 +49,15 @@ const scanResultSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // Generated PDF report (cached)
+  pdfReport: {
+    type: Buffer,
+    default: null
+  },
+  pdfGeneratedAt: {
+    type: Date,
+    default: null
+  },
   status: {
     type: String,
     enum: ['queued', 'pending', 'combining', 'completed', 'failed', 'stopped'],

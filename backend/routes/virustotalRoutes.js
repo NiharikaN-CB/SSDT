@@ -9,6 +9,7 @@ const { refineReport } = require('../services/geminiService');
 const { runZapScan, startAsyncZapScan, stopCombinedScan } = require('../services/zapService');
 const { runUrlScan } = require('../services/urlscanService');
 const { startAsyncWebCheckScan, stopWebCheckScan } = require('../services/webCheckService');
+const { generatePdfReport } = require('../services/pdfService');
 const ScanResult = require('../models/ScanResult');
 const auth = require('../middleware/auth');
 const { combinedScanLimiter } = require('../middleware/rateLimiter');
@@ -772,18 +773,27 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       }
     }
 
-    // STEP C: Check if ZAP is complete and generate Gemini report
+    // STEP C: Check if ZAP and WebCheck are complete and generate Gemini report
     // This runs on EVERY poll request until Gemini report is generated
     const zapStatus = scan.zapResult?.status;
     const hasZapCompleted = zapStatus === 'completed' || zapStatus === 'completed_partial';
     const hasZapFailed = zapStatus === 'failed';
     const zapIsDone = hasZapCompleted || hasZapFailed;
 
-    // If ZAP is done AND we don't have Gemini report yet, generate it now
-    if (zapIsDone && !scan.refinedReport && scan.pagespeedResult && scan.observatoryResult) {
-      console.log('🤖 ZAP scan finished! Generating Gemini AI report with ALL scan data...');
+    // Check WebCheck status
+    const webCheckStatus = scan.webCheckResult?.status;
+    const hasWebCheckCompleted = webCheckStatus === 'completed' || webCheckStatus === 'completed_partial';
+    const hasWebCheckFailed = webCheckStatus === 'failed';
+    const webCheckIsDone = hasWebCheckCompleted || hasWebCheckFailed;
+
+    // If ZAP AND WebCheck are done AND we don't have Gemini report yet, generate it now
+    if (zapIsDone && webCheckIsDone && !scan.refinedReport && scan.pagespeedResult && scan.observatoryResult) {
+      console.log('🤖 ZAP and WebCheck scans finished! Generating Gemini AI report with ALL scan data...');
       if (zapStatus === 'completed_partial') {
         console.log('⚠️ Note: ZAP scan completed with partial results');
+      }
+      if (webCheckStatus === 'completed_partial') {
+        console.log('⚠️ Note: WebCheck scan completed with partial results');
       }
 
       try {
@@ -801,6 +811,9 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           totalOccurrences: scan.zapResult.totalOccurrences
         } : null;
 
+        // Include WebCheck data if scan completed (fully or partially)
+        const webCheckReport = hasWebCheckCompleted ? scan.webCheckResult.results : null;
+
         // Generate AI report with all available data
         const aiReport = await refineReport(
           scan.vtResult,
@@ -808,7 +821,8 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           observatoryReport,
           scan.target,
           zapReport,
-          urlscanReport
+          urlscanReport,
+          webCheckReport
         );
 
         // Use atomic update for final completion to avoid race conditions
@@ -828,6 +842,7 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
 
         console.log('✅ Gemini AI report generated with all scan data!');
         console.log(`   Included ZAP data: ${zapReport ? 'Yes' : 'No (scan failed)'}`);
+        console.log(`   Included WebCheck data: ${webCheckReport ? 'Yes' : 'No (scan failed)'}`);
       } catch (geminiError) {
         console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
         // Store fallback message using atomic update
@@ -846,28 +861,31 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         scan.refinedReport = fallbackReport;
         scan.status = 'completed';
       }
-    } else if (zapIsDone && !scan.refinedReport) {
-      // FALLBACK: ZAP is done but can't generate AI report (missing PageSpeed/Observatory)
-      // Still mark as completed so frontend shows results
-      console.log('⚠️ ZAP finished but cannot generate AI report - missing required scan data');
-      console.log(`   PageSpeed: ${scan.pagespeedResult ? 'Available' : 'MISSING'}`);
-      console.log(`   Observatory: ${scan.observatoryResult ? 'Available' : 'MISSING'}`);
+    } else if (zapIsDone && webCheckIsDone && !scan.refinedReport) {
+      // FALLBACK: Both ZAP and WebCheck done but can't generate AI report (missing PageSpeed/Observatory)
+      if (!scan.pagespeedResult || !scan.observatoryResult) {
+        console.log('⚠️ ZAP & WebCheck finished but cannot generate AI report - missing required scan data');
+        console.log(`   PageSpeed: ${scan.pagespeedResult ? 'Available' : 'MISSING'}`);
+        console.log(`   Observatory: ${scan.observatoryResult ? 'Available' : 'MISSING'}`);
 
-      const fallbackReport = 'AI analysis could not be generated - some scan data was unavailable. Please view individual scan results below.';
-      await ScanResult.updateOne(
-        { analysisId: id },
-        {
-          $set: {
-            refinedReport: fallbackReport,
-            status: 'completed',
-            updatedAt: new Date()
+        const fallbackReport = 'AI analysis could not be generated - some scan data was unavailable. Please view individual scan results below.';
+        await ScanResult.updateOne(
+          { analysisId: id },
+          {
+            $set: {
+              refinedReport: fallbackReport,
+              status: 'completed',
+              updatedAt: new Date()
+            }
           }
-        }
-      );
-      // Update local scan object for response
-      scan.refinedReport = fallbackReport;
-      scan.status = 'completed';
-      console.log('✅ Scan marked as completed (without full AI report)');
+        );
+        scan.refinedReport = fallbackReport;
+        scan.status = 'completed';
+        console.log('✅ Scan marked as completed (without full AI report)');
+      }
+    } else if (!zapIsDone || !webCheckIsDone) {
+      // Still waiting for ZAP or WebCheck to finish
+      console.log(`⏳ Waiting for background scans: ZAP=${zapIsDone ? 'done' : 'running'}, WebCheck=${webCheckIsDone ? 'done' : 'running'}`);
     }
 
     // STEP D: Return results (partial or complete)
@@ -1161,6 +1179,81 @@ router.post('/stop-scan/:id', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to stop scan',
+      details: err.message
+    });
+  }
+});
+
+// 🔟 Download PDF Report (Protected route)
+router.get('/download-pdf/:id', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const forceRegenerate = req.query.regenerate === 'true';
+
+    if (!id) {
+      return res.status(400).json({ error: 'Analysis ID is required' });
+    }
+
+    console.log(`📄 PDF download requested for: ${id}`);
+
+    // Find the scan
+    const scan = await ScanResult.findOne({
+      analysisId: id,
+      userId: req.user.id
+    });
+
+    if (!scan) {
+      return res.status(404).json({
+        error: 'Scan not found or access denied'
+      });
+    }
+
+    // Check if scan is complete
+    if (scan.status !== 'completed') {
+      return res.status(400).json({
+        error: 'Scan is not yet complete. Please wait for all scans to finish.',
+        status: scan.status
+      });
+    }
+
+    let pdfBuffer;
+
+    // Check if we have a cached PDF and don't need to regenerate
+    if (scan.pdfReport && !forceRegenerate) {
+      console.log('📄 Using cached PDF from database');
+      pdfBuffer = scan.pdfReport;
+    } else {
+      // Generate new PDF
+      console.log('📄 Generating new PDF report...');
+      pdfBuffer = await generatePdfReport(scan);
+
+      // Store PDF in database for caching
+      await ScanResult.updateOne(
+        { analysisId: id },
+        {
+          $set: {
+            pdfReport: pdfBuffer,
+            pdfGeneratedAt: new Date()
+          }
+        }
+      );
+      console.log('📄 PDF generated and cached in database');
+    }
+
+    // Set headers for PDF download
+    const filename = `security_report_${scan.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+
+    // Send PDF
+    res.send(pdfBuffer);
+    console.log(`✅ PDF report downloaded: ${filename}`);
+
+  } catch (err) {
+    console.error('❌ PDF generation error:', err);
+    res.status(500).json({
+      error: 'Failed to generate PDF report',
       details: err.message
     });
   }
