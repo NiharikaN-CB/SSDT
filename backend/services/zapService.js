@@ -13,19 +13,73 @@ const gridfsService = require('./gridfsService');
 const ZAP_URL = process.env.ZAP_API_URL || 'http://127.0.0.1:8080';
 const ZAP_API_KEY = process.env.ZAP_API_KEY || 'ssdt-secure-zap-2025';
 
+// Create HTTP agent with keep-alive to prevent socket hang up errors
+const http = require('http');
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  maxSockets: 10,
+  timeout: 120000
+});
+
 const zapApi = axios.create({
   baseURL: ZAP_URL,
-  timeout: 60000,
+  timeout: 120000, // Increased timeout to 2 minutes
+  httpAgent: httpAgent,
   headers: {
     'X-Zap-Api-Key': ZAP_API_KEY,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Connection': 'keep-alive'
   },
   params: {
     apikey: ZAP_API_KEY
-  }
+  },
+  // Retry on network errors
+  maxRedirects: 5
 });
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// ============================================================================
+// RETRY LOGIC WITH EXPONENTIAL BACKOFF
+// ============================================================================
+
+/**
+ * Execute a ZAP API call with retry logic and exponential backoff
+ * @param {Function} apiCall - Async function that makes the API call
+ * @param {number} maxRetries - Maximum number of retries (default: 3)
+ * @param {number} baseDelay - Base delay in ms (default: 1000)
+ * @param {string} operationName - Name of the operation for logging
+ * @returns {Promise<any>} - Result of the API call
+ */
+async function zapApiWithRetry(apiCall, maxRetries = 3, baseDelay = 1000, operationName = 'ZAP API call') {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await apiCall();
+    } catch (error) {
+      lastError = error;
+      const isRetryable = error.code === 'ECONNRESET' ||
+                          error.code === 'ETIMEDOUT' ||
+                          error.code === 'ENOTFOUND' ||
+                          error.message?.includes('socket hang up') ||
+                          error.message?.includes('ECONNREFUSED') ||
+                          error.message?.includes('timeout');
+
+      if (!isRetryable || attempt === maxRetries) {
+        console.error(`❌ ${operationName} failed after ${attempt} attempt(s): ${error.message}`);
+        throw error;
+      }
+
+      const delay = baseDelay * Math.pow(2, attempt - 1); // Exponential backoff: 1s, 2s, 4s
+      console.warn(`⚠️ ${operationName} failed (attempt ${attempt}/${maxRetries}): ${error.message}. Retrying in ${delay}ms...`);
+      await sleep(delay);
+    }
+  }
+
+  throw lastError;
+}
 
 // ============================================================================
 // URL-SPECIFIC VULNERABILITY TRACKING
@@ -1776,6 +1830,8 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
     const maxStuckIterations = 60; // 300 seconds = 5 minutes (for comprehensive 12-hour scans)
     const activeScanStartTime = Date.now();
     const maxActiveScanTime = (maxActiveScanDuration + 30) * 60 * 1000; // Add 30 min buffer for cleanup
+    let connectionFailureCount = 0;
+    const maxConnectionFailures = 5; // After 5 consecutive connection failures, save partial results
 
     while (scanProgress < 100) {
       await sleep(5000);
@@ -1793,9 +1849,24 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
         break;
       }
 
-      const statusResponse = await zapApi.get('/JSON/ascan/view/status/', {
-        params: { scanId: activeScanId }
-      });
+      // Use retry logic for scan status check
+      let statusResponse;
+      try {
+        statusResponse = await zapApiWithRetry(
+          () => zapApi.get('/JSON/ascan/view/status/', { params: { scanId: activeScanId } }),
+          3, 2000, 'Active scan status check'
+        );
+        connectionFailureCount = 0; // Reset on success
+      } catch (statusError) {
+        connectionFailureCount++;
+        console.error(`❌ [BACKGROUND] Connection failure ${connectionFailureCount}/${maxConnectionFailures}: ${statusError.message}`);
+
+        if (connectionFailureCount >= maxConnectionFailures) {
+          console.warn('⚠️ [BACKGROUND] Too many connection failures, saving partial results...');
+          break; // Exit loop to save partial results
+        }
+        continue; // Try again on next iteration
+      }
 
       scanProgress = parseInt(statusResponse.data.status);
       const uiProgress = 60 + Math.floor(scanProgress * 0.3); // 60% to 90%
@@ -1838,25 +1909,40 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
 
     console.log('✅ [BACKGROUND] Active scan complete');
 
-    // Phase 8: Retrieve and process alerts
+    // Phase 8: Retrieve and process alerts with retry logic
     await updateProgress('processing', 92, { message: 'Collecting vulnerability data...' });
     console.log('📊 [BACKGROUND] Retrieving alerts...');
 
-    const alertsResponse = await zapApi.get('/JSON/core/view/alerts/', {
-      params: {
-        baseurl: targetUrl,
-        start: 0,
-        count: 10000
-      }
-    });
+    let rawAlerts = [];
+    let htmlReportResponse = null;
+    let partialResults = false;
 
-    const rawAlerts = alertsResponse.data.alerts || [];
-    console.log(`📊 [BACKGROUND] Retrieved ${rawAlerts.length} raw alerts`);
+    try {
+      const alertsResponse = await zapApiWithRetry(
+        () => zapApi.get('/JSON/core/view/alerts/', {
+          params: { baseurl: targetUrl, start: 0, count: 10000 }
+        }),
+        3, 2000, 'Alerts retrieval'
+      );
+      rawAlerts = alertsResponse.data.alerts || [];
+      console.log(`📊 [BACKGROUND] Retrieved ${rawAlerts.length} raw alerts`);
+    } catch (alertsError) {
+      console.error('❌ [BACKGROUND] Failed to retrieve alerts:', alertsError.message);
+      partialResults = true;
+      // Continue with empty alerts - we'll still save what we have
+    }
 
-    // Generate HTML report
-    const htmlReportResponse = await zapApi.get('/OTHER/core/other/htmlreport/', {
-      responseType: 'arraybuffer'
-    });
+    // Generate HTML report with retry
+    try {
+      htmlReportResponse = await zapApiWithRetry(
+        () => zapApi.get('/OTHER/core/other/htmlreport/', { responseType: 'arraybuffer' }),
+        3, 2000, 'HTML report generation'
+      );
+    } catch (reportError) {
+      console.error('❌ [BACKGROUND] Failed to generate HTML report:', reportError.message);
+      partialResults = true;
+      // Continue without HTML report
+    }
 
     // Process alerts into dual versions
     const { summaryAlerts, detailedAlerts } = createDualVersionAlerts(rawAlerts);
@@ -1872,21 +1958,61 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
     // Store reports in GridFS
     await updateProgress('saving', 95, { message: 'Saving reports...' });
 
-    const htmlBuffer = Buffer.from(htmlReportResponse.data);
-    const htmlFileId = await gridfsService.uploadFile(
-      htmlBuffer,
-      `zap_report_${scanId}.html`,
-      { scanId, contentType: 'text/html' }
-    );
+    let htmlBuffer = null;
+    let htmlFileId = null;
+    let detailedAlertsFileId = null;
+    const reportFiles = [];
 
-    const detailedAlertsBuffer = Buffer.from(JSON.stringify(detailedAlerts, null, 2), 'utf-8');
-    const detailedAlertsFileId = await gridfsService.uploadFile(
-      detailedAlertsBuffer,
-      `zap_detailed_alerts_${scanId}.json`,
-      { scanId, contentType: 'application/json' }
-    );
+    // Store HTML report if available
+    if (htmlReportResponse && htmlReportResponse.data) {
+      try {
+        htmlBuffer = Buffer.from(htmlReportResponse.data);
+        htmlFileId = await gridfsService.uploadFile(
+          htmlBuffer,
+          `zap_report_${scanId}.html`,
+          { scanId, contentType: 'text/html' }
+        );
+        reportFiles.push({
+          fileId: htmlFileId.toString(),
+          filename: `zap_report_${scanId}.html`,
+          contentType: 'text/html',
+          format: 'html',
+          size: htmlBuffer.length
+        });
+      } catch (uploadError) {
+        console.error('❌ [BACKGROUND] Failed to store HTML report:', uploadError.message);
+        partialResults = true;
+      }
+    }
 
-    console.log(`✅ [BACKGROUND] Reports stored in GridFS`);
+    // Store detailed alerts
+    try {
+      const detailedAlertsBuffer = Buffer.from(JSON.stringify(detailedAlerts, null, 2), 'utf-8');
+      detailedAlertsFileId = await gridfsService.uploadFile(
+        detailedAlertsBuffer,
+        `zap_detailed_alerts_${scanId}.json`,
+        { scanId, contentType: 'application/json' }
+      );
+      reportFiles.push({
+        fileId: detailedAlertsFileId.toString(),
+        filename: `zap_detailed_alerts_${scanId}.json`,
+        contentType: 'application/json',
+        format: 'json',
+        size: detailedAlertsBuffer.length,
+        description: 'Full alert details with all affected URLs'
+      });
+    } catch (uploadError) {
+      console.error('❌ [BACKGROUND] Failed to store detailed alerts:', uploadError.message);
+      partialResults = true;
+    }
+
+    console.log(`✅ [BACKGROUND] Reports stored in GridFS (partial: ${partialResults})`);
+
+    // Determine final status based on partial results
+    const finalStatus = partialResults ? 'completed_partial' : 'completed';
+    const statusMessage = partialResults
+      ? `Scan completed with partial results. Found ${summaryAlerts.length} vulnerability types. Some data may be missing due to connection issues.`
+      : `Scan complete! Found ${summaryAlerts.length} vulnerability types.`;
 
     // Update final scan result with retry logic (critical operation)
     let finalUpdateSuccess = false;
@@ -1896,7 +2022,7 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
           { analysisId: scanId },
           {
             $set: {
-              'zapResult.status': 'completed',
+              'zapResult.status': finalStatus,
               'zapResult.phase': 'completed',
               'zapResult.progress': 100,
               'zapResult.urlsFound': urlsFound,
@@ -1904,28 +2030,13 @@ async function runAsyncZapScanBackground(targetUrl, scanId, userId) {
               'zapResult.riskCounts': riskCounts,
               'zapResult.totalAlerts': summaryAlerts.length,
               'zapResult.totalOccurrences': summaryAlerts.reduce((sum, a) => sum + a.totalOccurrences, 0),
-              'zapResult.reportFiles': [
-            {
-              fileId: htmlFileId.toString(),
-              filename: `zap_report_${scanId}.html`,
-              contentType: 'text/html',
-              format: 'html',
-              size: htmlBuffer.length
-            },
-            {
-              fileId: detailedAlertsFileId.toString(),
-              filename: `zap_detailed_alerts_${scanId}.json`,
-              contentType: 'application/json',
-              format: 'json',
-              size: detailedAlertsBuffer.length,
-              description: 'Full alert details with all affected URLs'
+              'zapResult.reportFiles': reportFiles,
+              'zapResult.partialResults': partialResults,
+              'zapResult.completedAt': new Date(),
+              'zapResult.message': statusMessage,
+              updatedAt: new Date()
             }
-          ],
-          'zapResult.completedAt': new Date(),
-          'zapResult.message': `Scan complete! Found ${summaryAlerts.length} vulnerability types.`,
-          updatedAt: new Date()
-        }
-      }
+          }
     );
         finalUpdateSuccess = true;
         break; // Success

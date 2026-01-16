@@ -669,6 +669,8 @@ const Hero = () => {
                   <p className="score-card__label" style={{ color: '#ffb900' }}>{zapPendingMessage}</p>
                 ) : backendZapData.status === 'completed' ? (
                   <p className="score-card__label">{backendZapData.alerts ? backendZapData.alerts.length : 0} Alerts</p>
+                ) : backendZapData.status === 'completed_partial' ? (
+                  <p className="score-card__label" style={{ color: '#ffb900' }}>{backendZapData.alerts ? backendZapData.alerts.length : 0} Alerts (Partial)</p>
                 ) : null}
               </>
             ) : report?.zapResult?.error || (report?.status === 'completed' && !report?.hasZapResult) ? (

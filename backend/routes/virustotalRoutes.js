@@ -403,11 +403,11 @@ router.get('/active-scan', auth, async (req, res) => {
       hasVtResult: !!activeScan.vtResult,
       hasPsiResult: !!activeScan.pagespeedResult,
       hasObservatoryResult: !!activeScan.observatoryResult,
-      hasZapResult: !!activeScan.zapResult && activeScan.zapResult.status === 'completed',
+      hasZapResult: !!activeScan.zapResult && (activeScan.zapResult.status === 'completed' || activeScan.zapResult.status === 'completed_partial'),
       zapPending: !!activeScan.zapResult && (activeScan.zapResult.status === 'pending' || activeScan.zapResult.status === 'running'),
       hasUrlscanResult: !!activeScan.urlscanResult && !activeScan.urlscanResult.error,
       hasRefinedReport: !!activeScan.refinedReport,
-      hasWebCheckResult: !!activeScan.webCheckResult && activeScan.webCheckResult.status === 'completed',
+      hasWebCheckResult: !!activeScan.webCheckResult && (activeScan.webCheckResult.status === 'completed' || activeScan.webCheckResult.status === 'completed_partial'),
       webCheckPending: !!activeScan.webCheckResult && activeScan.webCheckResult.status === 'running',
       // Summary data (for quick display)
       vtStats,
@@ -775,13 +775,16 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
     // STEP C: Check if ZAP is complete and generate Gemini report
     // This runs on EVERY poll request until Gemini report is generated
     const zapStatus = scan.zapResult?.status;
-    const hasZapCompleted = zapStatus === 'completed';
+    const hasZapCompleted = zapStatus === 'completed' || zapStatus === 'completed_partial';
     const hasZapFailed = zapStatus === 'failed';
     const zapIsDone = hasZapCompleted || hasZapFailed;
 
     // If ZAP is done AND we don't have Gemini report yet, generate it now
     if (zapIsDone && !scan.refinedReport && scan.pagespeedResult && scan.observatoryResult) {
       console.log('🤖 ZAP scan finished! Generating Gemini AI report with ALL scan data...');
+      if (zapStatus === 'completed_partial') {
+        console.log('⚠️ Note: ZAP scan completed with partial results');
+      }
 
       try {
         // Prepare data for Gemini (with or without ZAP results depending on success)
@@ -789,7 +792,7 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         const observatoryReport = scan.observatoryResult?.error ? null : scan.observatoryResult;
         const urlscanReport = scan.urlscanResult?.error ? null : scan.urlscanResult;
 
-        // Only include ZAP data if scan succeeded
+        // Include ZAP data if scan completed (fully or partially)
         const zapReport = hasZapCompleted ? {
           site: scan.target,
           riskCounts: scan.zapResult.riskCounts,
@@ -978,10 +981,10 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       hasVtResult: !!scan.vtResult,
       hasPsiResult: !!scan.pagespeedResult,
       hasObservatoryResult: !!scan.observatoryResult,
-      hasZapResult: !!scan.zapResult && scan.zapResult.status === 'completed',
+      hasZapResult: !!scan.zapResult && (scan.zapResult.status === 'completed' || scan.zapResult.status === 'completed_partial'),
       zapPending: !!scan.zapResult && (scan.zapResult.status === 'pending' || scan.zapResult.status === 'running'),
       hasUrlscanResult: !!scan.urlscanResult && !scan.urlscanResult.error,
-      hasWebCheckResult: !!scan.webCheckResult && scan.webCheckResult.status === 'completed',
+      hasWebCheckResult: !!scan.webCheckResult && (scan.webCheckResult.status === 'completed' || scan.webCheckResult.status === 'completed_partial'),
       webCheckPending: !!scan.webCheckResult && scan.webCheckResult.status === 'running',
       hasRefinedReport: !!scan.refinedReport,
       // Actual data (null if not yet available)
