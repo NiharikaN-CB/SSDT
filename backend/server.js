@@ -25,11 +25,12 @@ const app = express();
 connectDB().then(() => {
   // Initialize GridFS after MongoDB connection is established
   try {
-    gridfsService.initialize();
-    console.log('✅ GridFS initialized for ZAP report storage');
+    gridfsService.initialize('zap_reports');
+    gridfsService.initialize('webcheck_results');
+    console.log('✅ GridFS initialized (buckets: zap_reports, webcheck_results)');
   } catch (error) {
     console.error('⚠️  GridFS initialization failed:', error.message);
-    console.error('   ZAP report storage may not work properly');
+    console.error('   Large file storage may not work properly');
   }
 });
 

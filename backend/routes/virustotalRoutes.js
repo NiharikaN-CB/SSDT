@@ -8,7 +8,7 @@ const { scanHost } = require('../services/observatoryService');
 const { refineReport } = require('../services/geminiService');
 const { runZapScan, startAsyncZapScan, stopCombinedScan } = require('../services/zapService');
 const { runUrlScan } = require('../services/urlscanService');
-const { startAsyncWebCheckScan, stopWebCheckScan } = require('../services/webCheckService');
+const { startAsyncWebCheckScan, stopWebCheckScan, getFullResults } = require('../services/webCheckService');
 const { generatePdfReport } = require('../services/pdfService');
 const ScanResult = require('../models/ScanResult');
 const auth = require('../middleware/auth');
@@ -365,16 +365,42 @@ router.get('/active-scan', auth, async (req, res) => {
     if (activeScan.webCheckResult) {
       const webCheckStatus = activeScan.webCheckResult.status;
 
-      if (webCheckStatus === 'completed') {
+      if (webCheckStatus === 'completed' || webCheckStatus === 'completed_with_errors' || webCheckStatus === 'completed_partial') {
+        // Try to get full results (handles both inline and GridFS storage)
+        let webCheckResults = activeScan.webCheckResult.fullResults;
+        if (!webCheckResults && activeScan.webCheckResult.resultsFileId) {
+          // Results in GridFS - fetch them
+          try {
+            webCheckResults = await getFullResults(activeScan.webCheckResult);
+          } catch (e) {
+            console.warn('Failed to fetch WebCheck results from GridFS:', e.message);
+          }
+        }
+        // Fallback to summary if full results not available
+        if (!webCheckResults) {
+          webCheckResults = activeScan.webCheckResult.summary || {};
+        }
+
         webCheckData = {
-          status: 'completed',
-          results: activeScan.webCheckResult.results || {},
+          status: webCheckStatus,
+          results: webCheckResults,
+          summary: activeScan.webCheckResult.summary || {},
           completedScans: activeScan.webCheckResult.completedScans || 0,
           totalScans: activeScan.webCheckResult.totalScans || 30,
           hasErrors: activeScan.webCheckResult.hasErrors || false,
           duration: activeScan.webCheckResult.duration || 0
         };
-      } else if (webCheckStatus === 'running') {
+      } else if (webCheckStatus === 'uploading') {
+        // WebCheck scans complete, uploading large results to GridFS
+        webCheckData = {
+          status: 'uploading',
+          progress: 100, // Scans are done
+          uploadProgress: activeScan.webCheckResult.uploadProgress || 0,
+          completedScans: activeScan.webCheckResult.completedScans || activeScan.webCheckResult.totalScans,
+          totalScans: activeScan.webCheckResult.totalScans || 30,
+          message: activeScan.webCheckResult.message || 'Uploading results to storage...'
+        };
+      } else if (webCheckStatus === 'running' || webCheckStatus === 'pending') {
         webCheckData = {
           status: 'running',
           progress: activeScan.webCheckResult.progress || 0,
@@ -393,6 +419,11 @@ router.get('/active-scan', auth, async (req, res) => {
     }
 
     console.log(`🔄 Active scan found for user ${req.user.id}: ${activeScan.analysisId}`);
+    console.log(`   Status: ${activeScan.status}`);
+    console.log(`   Has refinedReport: ${!!activeScan.refinedReport}`);
+    if (activeScan.refinedReport) {
+      console.log(`   refinedReport length: ${activeScan.refinedReport.length} chars`);
+    }
 
     res.json({
       success: true,
@@ -408,7 +439,7 @@ router.get('/active-scan', auth, async (req, res) => {
       zapPending: !!activeScan.zapResult && (activeScan.zapResult.status === 'pending' || activeScan.zapResult.status === 'running'),
       hasUrlscanResult: !!activeScan.urlscanResult && !activeScan.urlscanResult.error,
       hasRefinedReport: !!activeScan.refinedReport,
-      hasWebCheckResult: !!activeScan.webCheckResult && (activeScan.webCheckResult.status === 'completed' || activeScan.webCheckResult.status === 'completed_partial'),
+      hasWebCheckResult: !!activeScan.webCheckResult && (activeScan.webCheckResult.status === 'completed' || activeScan.webCheckResult.status === 'completed_partial' || activeScan.webCheckResult.status === 'completed_with_errors'),
       webCheckPending: !!activeScan.webCheckResult && activeScan.webCheckResult.status === 'running',
       // Summary data (for quick display)
       vtStats,
@@ -631,23 +662,23 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
           scanPromises.push(Promise.resolve(scan.urlscanResult));
         }
 
-        // ONLY start ZAP if it hasn't been started yet
+        // Always call startAsyncZapScan - it returns current DB status
+        // (whether running, completed, or needs to start fresh)
         if (zapNotStarted) {
           console.log('🚀 Starting ZAP scan for the FIRST time...');
-          scanPromises.push(startAsyncZapScan(scan.target, scan.analysisId, req.user.id));
         } else {
-          console.log('⏭️ ZAP scan already started, skipping initialization...');
-          scanPromises.push(Promise.resolve(scan.zapResult));
+          console.log('🔄 Checking ZAP scan status...');
         }
+        scanPromises.push(startAsyncZapScan(scan.target, scan.analysisId, req.user.id));
 
-        // ONLY start WebCheck if it hasn't been started yet
+        // Always call startAsyncWebCheckScan - it returns current DB status
+        // (whether running, completed, or needs to start fresh)
         if (webCheckNotStarted) {
           console.log('🚀 Starting WebCheck scan for the FIRST time...');
-          scanPromises.push(startAsyncWebCheckScan(scan.target, scan.analysisId, req.user.id));
         } else {
-          console.log('⏭️ WebCheck scan already started, skipping initialization...');
-          scanPromises.push(Promise.resolve(scan.webCheckResult));
+          console.log('🔄 Checking WebCheck scan status...');
         }
+        scanPromises.push(startAsyncWebCheckScan(scan.target, scan.analysisId, req.user.id));
 
         const [psiResult, obsResult, urlscanResult, zapInitResult, webCheckInitResult] = await Promise.allSettled(scanPromises);
 
@@ -782,44 +813,74 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
 
     // Check WebCheck status
     const webCheckStatus = scan.webCheckResult?.status;
-    const hasWebCheckCompleted = webCheckStatus === 'completed' || webCheckStatus === 'completed_partial';
+    const hasWebCheckCompleted = webCheckStatus === 'completed' || webCheckStatus === 'completed_partial' || webCheckStatus === 'completed_with_errors';
     const hasWebCheckFailed = webCheckStatus === 'failed';
     const webCheckIsDone = hasWebCheckCompleted || hasWebCheckFailed;
 
     // If ZAP AND WebCheck are done AND we don't have Gemini report yet, generate it now
     if (zapIsDone && webCheckIsDone && !scan.refinedReport && scan.pagespeedResult && scan.observatoryResult) {
       console.log('🤖 ZAP and WebCheck scans finished! Generating Gemini AI report with ALL scan data...');
-      if (zapStatus === 'completed_partial') {
+
+      // CRITICAL: Fresh refetch to ensure we have the absolute latest data
+      // This prevents race conditions where background scans completed after our last read
+      const freshScan = await ScanResult.findOne({ analysisId: id, userId: req.user.id });
+      if (!freshScan) {
+        console.error('❌ Scan not found during Gemini generation');
+        return res.status(404).json({ error: 'Scan not found' });
+      }
+
+      // Use fresh data for Gemini generation
+      const freshZapResult = freshScan.zapResult;
+      const freshWebCheckResult = freshScan.webCheckResult;
+
+      console.log(`📊 Fresh data check - ZAP status: ${freshZapResult?.status}, WebCheck status: ${freshWebCheckResult?.status}`);
+      console.log(`📊 WebCheck fullResults exists: ${!!freshWebCheckResult?.fullResults}, keys: ${freshWebCheckResult?.fullResults ? Object.keys(freshWebCheckResult.fullResults).length : 0}`);
+
+      if (freshZapResult?.status === 'completed_partial') {
         console.log('⚠️ Note: ZAP scan completed with partial results');
       }
-      if (webCheckStatus === 'completed_partial') {
-        console.log('⚠️ Note: WebCheck scan completed with partial results');
+      if (freshWebCheckResult?.status === 'completed_partial' || freshWebCheckResult?.status === 'completed_with_errors') {
+        console.log('⚠️ Note: WebCheck scan completed with partial results or errors');
       }
 
       try {
         // Prepare data for Gemini (with or without ZAP results depending on success)
-        const psiReport = scan.pagespeedResult?.error ? null : scan.pagespeedResult;
-        const observatoryReport = scan.observatoryResult?.error ? null : scan.observatoryResult;
-        const urlscanReport = scan.urlscanResult?.error ? null : scan.urlscanResult;
+        const psiReport = freshScan.pagespeedResult?.error ? null : freshScan.pagespeedResult;
+        const observatoryReport = freshScan.observatoryResult?.error ? null : freshScan.observatoryResult;
+        const urlscanReport = freshScan.urlscanResult?.error ? null : freshScan.urlscanResult;
 
         // Include ZAP data if scan completed (fully or partially)
-        const zapReport = hasZapCompleted ? {
-          site: scan.target,
-          riskCounts: scan.zapResult.riskCounts,
-          alerts: scan.zapResult.alerts,
-          totalAlerts: scan.zapResult.totalAlerts,
-          totalOccurrences: scan.zapResult.totalOccurrences
+        const freshZapStatus = freshZapResult?.status;
+        const freshZapCompleted = freshZapStatus === 'completed' || freshZapStatus === 'completed_partial';
+        const zapReport = freshZapCompleted ? {
+          site: freshScan.target,
+          riskCounts: freshZapResult.riskCounts,
+          alerts: freshZapResult.alerts,
+          totalAlerts: freshZapResult.totalAlerts,
+          totalOccurrences: freshZapResult.totalOccurrences
         } : null;
 
         // Include WebCheck data if scan completed (fully or partially)
-        const webCheckReport = hasWebCheckCompleted ? scan.webCheckResult.results : null;
+        const freshWebCheckStatus = freshWebCheckResult?.status;
+        const freshWebCheckCompleted = freshWebCheckStatus === 'completed' || freshWebCheckStatus === 'completed_partial' || freshWebCheckStatus === 'completed_with_errors';
+
+        // Use getFullResults to handle both inline and GridFS storage
+        let webCheckReport = null;
+        if (freshWebCheckCompleted) {
+          webCheckReport = await getFullResults(freshWebCheckResult);
+          if (!webCheckReport) {
+            console.warn('⚠️ WebCheck marked complete but could not retrieve results');
+          } else {
+            console.log(`📊 WebCheck results retrieved: ${Object.keys(webCheckReport).length} scan types`);
+          }
+        }
 
         // Generate AI report with all available data
         const aiReport = await refineReport(
-          scan.vtResult,
+          freshScan.vtResult,
           psiReport,
           observatoryReport,
-          scan.target,
+          freshScan.target,
           zapReport,
           urlscanReport,
           webCheckReport
@@ -841,8 +902,8 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
         scan.status = 'completed';
 
         console.log('✅ Gemini AI report generated with all scan data!');
-        console.log(`   Included ZAP data: ${zapReport ? 'Yes' : 'No (scan failed)'}`);
-        console.log(`   Included WebCheck data: ${webCheckReport ? 'Yes' : 'No (scan failed)'}`);
+        console.log(`   Included ZAP data: ${zapReport ? 'Yes' : 'No (scan not completed)'}`);
+        console.log(`   Included WebCheck data: ${webCheckReport ? `Yes (${Object.keys(webCheckReport).length} scan types)` : 'No (fullResults missing)'}`);
       } catch (geminiError) {
         console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
         // Store fallback message using atomic update
@@ -959,17 +1020,43 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
     if (scan.webCheckResult) {
       const webCheckStatus = scan.webCheckResult.status;
 
-      if (webCheckStatus === 'completed') {
-        // WebCheck scans completed successfully
+      if (webCheckStatus === 'completed' || webCheckStatus === 'completed_with_errors' || webCheckStatus === 'completed_partial') {
+        // WebCheck scans completed (possibly with some errors)
+        // Try to get full results (handles both inline and GridFS storage)
+        let webCheckResults = scan.webCheckResult.fullResults;
+        if (!webCheckResults && scan.webCheckResult.resultsFileId) {
+          // Results in GridFS - fetch them
+          try {
+            webCheckResults = await getFullResults(scan.webCheckResult);
+          } catch (e) {
+            console.warn('Failed to fetch WebCheck results from GridFS:', e.message);
+          }
+        }
+        // Fallback to summary if full results not available
+        if (!webCheckResults) {
+          webCheckResults = scan.webCheckResult.summary || {};
+        }
+
         webCheckData = {
-          status: 'completed',
-          results: scan.webCheckResult.results || {},
+          status: webCheckStatus,
+          results: webCheckResults,
+          summary: scan.webCheckResult.summary || {},
           completedScans: scan.webCheckResult.completedScans || 0,
           totalScans: scan.webCheckResult.totalScans || 30,
           hasErrors: scan.webCheckResult.hasErrors || false,
           duration: scan.webCheckResult.duration || 0
         };
-      } else if (webCheckStatus === 'running') {
+      } else if (webCheckStatus === 'uploading') {
+        // WebCheck scans complete, uploading large results to GridFS
+        webCheckData = {
+          status: 'uploading',
+          progress: 100, // Scans are done
+          uploadProgress: scan.webCheckResult.uploadProgress || 0,
+          completedScans: scan.webCheckResult.completedScans || scan.webCheckResult.totalScans,
+          totalScans: scan.webCheckResult.totalScans || 30,
+          message: scan.webCheckResult.message || 'Uploading results to storage...'
+        };
+      } else if (webCheckStatus === 'running' || webCheckStatus === 'pending') {
         // WebCheck scan in progress - show progress info
         webCheckData = {
           status: 'running',
@@ -990,6 +1077,13 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
     }
 
     // Always return all available data (progressive loading)
+    console.log(`📤 Returning combined-analysis response:`);
+    console.log(`   Status: ${scan.status}`);
+    console.log(`   Has refinedReport: ${!!scan.refinedReport}`);
+    if (scan.refinedReport) {
+      console.log(`   refinedReport length: ${scan.refinedReport.length} chars`);
+    }
+
     return res.json({
       success: true,
       status: scan.status,
@@ -1002,7 +1096,7 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
       hasZapResult: !!scan.zapResult && (scan.zapResult.status === 'completed' || scan.zapResult.status === 'completed_partial'),
       zapPending: !!scan.zapResult && (scan.zapResult.status === 'pending' || scan.zapResult.status === 'running'),
       hasUrlscanResult: !!scan.urlscanResult && !scan.urlscanResult.error,
-      hasWebCheckResult: !!scan.webCheckResult && (scan.webCheckResult.status === 'completed' || scan.webCheckResult.status === 'completed_partial'),
+      hasWebCheckResult: !!scan.webCheckResult && (scan.webCheckResult.status === 'completed' || scan.webCheckResult.status === 'completed_partial' || scan.webCheckResult.status === 'completed_with_errors'),
       webCheckPending: !!scan.webCheckResult && scan.webCheckResult.status === 'running',
       hasRefinedReport: !!scan.refinedReport,
       // Actual data (null if not yet available)
@@ -1075,7 +1169,8 @@ router.get('/download-complete-json/:id', auth, async (req, res) => {
         totalScans: scan.webCheckResult?.totalScans || null,
         duration: scan.webCheckResult?.duration || null,
         hasErrors: scan.webCheckResult?.hasErrors || false,
-        results: scan.webCheckResult?.results || null
+        results: scan.webCheckResult ? await getFullResults(scan.webCheckResult) : null,
+        summary: scan.webCheckResult?.summary || null
       },
       zap: {
         summary: {
@@ -1223,6 +1318,20 @@ router.get('/download-pdf/:id', auth, async (req, res) => {
       console.log('📄 Using cached PDF from database');
       pdfBuffer = scan.pdfReport;
     } else {
+      // Ensure WebCheck fullResults is populated (might be in GridFS)
+      if (scan.webCheckResult && !scan.webCheckResult.fullResults && scan.webCheckResult.resultsFileId) {
+        console.log('📄 Fetching WebCheck results from GridFS for PDF...');
+        try {
+          const webCheckFullResults = await getFullResults(scan.webCheckResult);
+          if (webCheckFullResults) {
+            scan.webCheckResult.fullResults = webCheckFullResults;
+            console.log(`📄 WebCheck results fetched: ${Object.keys(webCheckFullResults).length} scan types`);
+          }
+        } catch (e) {
+          console.warn('⚠️ Failed to fetch WebCheck results for PDF:', e.message);
+        }
+      }
+
       // Generate new PDF
       console.log('📄 Generating new PDF report...');
       pdfBuffer = await generatePdfReport(scan);

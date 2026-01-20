@@ -1311,6 +1311,32 @@ async function startAsyncZapScan(targetUrl, scanId, userId) {
   console.log(`   Mode: Full Comprehensive (up to 12 hours)`);
 
   try {
+    // CHECK DATABASE FIRST - this is the source of truth for production
+    // This prevents duplicate scans even if backend restarts
+    const existingScan = await ScanResult.findOne({ analysisId: scanId, userId });
+
+    if (existingScan?.zapResult) {
+      const status = existingScan.zapResult.status;
+
+      // If scan is already running, return current status
+      if (status === 'running' || status === 'pending') {
+        console.log(`[ZAP] ⏭️ Scan already running in DB for ${scanId}`);
+        return {
+          status: existingScan.zapResult.status,
+          phase: existingScan.zapResult.phase || 'running',
+          progress: existingScan.zapResult.progress || 0,
+          message: 'ZAP scan already in progress',
+          startedAt: existingScan.zapResult.startedAt
+        };
+      }
+
+      // If scan is completed, return completed result
+      if (status === 'completed' || status === 'completed_partial' || status === 'failed') {
+        console.log(`[ZAP] ⏭️ Scan already completed in DB for ${scanId}`);
+        return existingScan.zapResult;
+      }
+    }
+
     // Initialize ZAP result in database with "pending" status
     // Use full object to avoid MongoDB nested field creation errors when zapResult is null
     await ScanResult.updateOne(

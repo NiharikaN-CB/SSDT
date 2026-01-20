@@ -378,7 +378,7 @@ async function formatScanDataForPdf(scanResult) {
   const obs = scanResult.observatoryResult || {};
   const zap = scanResult.zapResult || {};
   const urlscan = scanResult.urlscanResult || {};
-  const webCheck = scanResult.webCheckResult?.results || {};
+  const webCheck = scanResult.webCheckResult?.fullResults || {};
 
   const scanDataText = `
 Target URL: ${scanResult.target}
@@ -502,7 +502,18 @@ Return a JSON object with this EXACT structure:
         { "label": { "en": "Low Risk", "ja": "Japanese" }, "value": "${zap.riskCounts?.Low || 0}", "type": "info" },
         { "label": { "en": "Informational", "ja": "Japanese" }, "value": "${zap.riskCounts?.Informational || 0}", "type": "stat" }
       ],
-      "alerts": ${JSON.stringify((zap.alerts || []).slice(0, 7).map(a => ({ risk: a.risk, alert: a.alert })))}
+      "alerts": ${JSON.stringify((zap.alerts || []).slice(0, 7).map(a => ({ risk: a.risk, alert: a.alert })))},
+      "detailedAlerts": ${JSON.stringify((zap.alerts || []).map(a => ({
+        name: a.alert,
+        risk: a.risk,
+        confidence: a.confidence,
+        description: a.description || 'No description available',
+        solution: a.solution || 'No solution provided',
+        reference: a.reference || '',
+        cweid: a.cweid,
+        wascid: a.wascid,
+        totalOccurrences: a.totalOccurrences || 0
+      })))}
     },
     {
       "id": "urlscan",
@@ -547,6 +558,25 @@ IMPORTANT RULES:
         .trim();
 
       const parsed = JSON.parse(jsonText);
+
+      // Manually add detailedAlerts to ZAP section (Gemini might not return it)
+      // This ensures we always have the vulnerability details for the PDF
+      const zapSection = parsed.sections?.find(s => s.id === 'zap');
+      if (zapSection && zap.alerts && zap.alerts.length > 0) {
+        zapSection.detailedAlerts = zap.alerts.map(a => ({
+          name: a.alert,
+          risk: a.risk,
+          confidence: a.confidence,
+          description: a.description || 'No description available',
+          solution: a.solution || 'No solution provided',
+          reference: a.reference || '',
+          cweid: a.cweid,
+          wascid: a.wascid,
+          totalOccurrences: a.totalOccurrences || 0
+        }));
+        console.log(`📊 Added ${zapSection.detailedAlerts.length} detailed alerts to ZAP section`);
+      }
+
       console.log(`✅ Successfully formatted scan data using ${keyLabel} key`);
       return parsed;
 
@@ -560,6 +590,133 @@ IMPORTANT RULES:
   }
 
   throw new Error(`Scan data formatting failed: ${lastError?.message}`);
+}
+
+/**
+ * Validate and clean content blocks within a section
+ * MINIMAL validation - only remove truly invalid content (empty/null)
+ * DO NOT filter based on capitalization or text patterns
+ * @param {Array} content - Array of content blocks
+ * @returns {Array} - Cleaned content blocks
+ */
+function validateContentBlocks(content) {
+  if (!Array.isArray(content)) return [];
+
+  const validContent = [];
+
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue;
+
+    // Validate paragraph blocks
+    if (block.type === 'paragraph') {
+      // Only skip if truly empty
+      if (!block.text || typeof block.text !== 'string' || block.text.trim().length === 0) {
+        console.warn('⚠️  Skipping empty paragraph block');
+        continue;
+      }
+
+      // Keep ALL non-empty paragraphs - Gemini should generate them correctly
+      validContent.push(block);
+    }
+    // Validate bullet blocks
+    else if (block.type === 'bullets') {
+      if (!Array.isArray(block.items) || block.items.length === 0) {
+        console.warn('⚠️  Skipping empty bullets block');
+        continue;
+      }
+
+      // Only filter out truly empty items
+      const validItems = block.items.filter(item => {
+        return item && typeof item === 'string' && item.trim().length > 0;
+      });
+
+      if (validItems.length > 0) {
+        validContent.push({
+          ...block,
+          items: validItems
+        });
+      } else {
+        console.warn('⚠️  Skipping bullets block with no valid items');
+      }
+    }
+    // Validate bold_text blocks
+    else if (block.type === 'bold_text') {
+      if (!block.label || !block.text) {
+        console.warn('⚠️  Skipping invalid bold_text block');
+        continue;
+      }
+      validContent.push(block);
+    }
+    // Unknown type - keep it anyway
+    else {
+      validContent.push(block);
+    }
+  }
+
+  return validContent;
+}
+
+/**
+ * Clean duplicate sections and overlapping content from parsed JSON
+ * @param {Object} parsed - The parsed JSON from Gemini
+ * @returns {Object} - Cleaned JSON structure
+ */
+function cleanDuplicateSections(parsed) {
+  if (!parsed || !parsed.sections || !Array.isArray(parsed.sections)) {
+    return parsed;
+  }
+
+  const seenHeadings = new Set();
+  const uniqueSections = [];
+
+  for (const section of parsed.sections) {
+    // Must have heading
+    if (!section.heading || typeof section.heading !== 'string' || section.heading.trim().length === 0) {
+      console.warn('⚠️  Skipping section with no heading');
+      continue;
+    }
+
+    // Check for duplicate headings (case-insensitive)
+    const headingLower = section.heading.toLowerCase().trim();
+    if (seenHeadings.has(headingLower)) {
+      console.warn(`⚠️  Duplicate section detected and removed: "${section.heading}"`);
+      continue; // Skip duplicate
+    }
+
+    // Must have valid type
+    if (!section.type || !['paragraph', 'bullets', 'mixed'].includes(section.type)) {
+      console.warn(`⚠️  Skipping section with invalid type: "${section.heading}"`);
+      continue;
+    }
+
+    // Must have content array
+    if (!Array.isArray(section.content) || section.content.length === 0) {
+      console.warn(`⚠️  Skipping section with no content: "${section.heading}"`);
+      continue;
+    }
+
+    // Validate and clean content blocks
+    const validatedContent = validateContentBlocks(section.content);
+
+    if (validatedContent.length === 0) {
+      console.warn(`⚠️  Skipping section with no valid content: "${section.heading}"`);
+      continue;
+    }
+
+    // Add cleaned section
+    seenHeadings.add(headingLower);
+    uniqueSections.push({
+      ...section,
+      content: validatedContent
+    });
+  }
+
+  console.log(`🧹 Cleaned sections: ${parsed.sections.length} → ${uniqueSections.length}`);
+
+  return {
+    ...parsed,
+    sections: uniqueSections
+  };
 }
 
 /**
@@ -591,7 +748,7 @@ async function formatAiAnalysisForPdf(markdownReport) {
 REPORT:
 ${markdownReport}
 
-Return a JSON object with this structure:
+Return a JSON object with this EXACT structure:
 {
   "title": "AI-Generated Security Analysis",
   "sections": [
@@ -607,15 +764,54 @@ Return a JSON object with this structure:
   ]
 }
 
-RULES:
-1. Return ONLY valid JSON
-2. Preserve all important information from the report
-3. Use "paragraph" for regular text
-4. Use "bullets" for lists
-5. Use "bold_text" for key-value pairs that should be emphasized
-6. Group related content under appropriate section headings
-7. Do NOT include emojis or special unicode characters
-8. Keep it professional and well-structured`;
+CRITICAL RULES - MUST FOLLOW STRICTLY:
+
+**JSON FORMAT:**
+1. Return ONLY valid JSON - absolutely NO text before or after the JSON
+2. No markdown code blocks (no \`\`\`json) - just raw JSON
+
+**NO DUPLICATES OR OVERLAPS:**
+3. Each section heading must appear EXACTLY ONCE - NO DUPLICATES WHATSOEVER
+4. NEVER repeat the same content in multiple sections
+5. NEVER overlap or mix content between sections
+6. Complete one entire section before starting the next
+
+**COMPLETE CONTENT BLOCKS - CRITICAL:**
+7. Every paragraph MUST be a complete thought with full sentences
+8. NEVER break paragraphs mid-sentence or mid-word
+9. Every bullet point must be a complete statement
+10. NO truncated text ending with "..." unless it's an intentional ellipsis
+11. ALL paragraphs must be self-contained and readable on their own
+
+**PROPER STRUCTURE:**
+12. Use "paragraph" type for flowing text (2-5 complete sentences per paragraph)
+13. Use "bullets" type for lists (3-8 complete items per bullet block)
+14. Use "bold_text" type ONLY for key-value pairs - MUST have BOTH "label" AND "text" fields:
+    - CORRECT: { "type": "bold_text", "label": "Risk Level:", "text": "HIGH" }
+    - WRONG: { "type": "bold_text" } or { "type": "bold_text", "label": "Risk:" }
+15. Each section must have at least one complete content block
+16. NEVER create bold_text blocks without both label and text properties
+
+**FORMATTING:**
+17. NO emojis or special unicode characters
+18. Professional business language only
+19. Clear section boundaries - do not mix sections
+20. Logical flow from one section to the next
+21. ALL text must be complete - no mid-sentence cutoffs
+
+**VALIDATION:**
+22. Double-check for duplicate headings before returning
+23. Verify EVERY paragraph ends with proper punctuation (. ! ?)
+24. Ensure no text overlaps between sections
+25. Confirm ALL content blocks are complete and readable
+
+EXAMPLE OF COMPLETE VS INCOMPLETE:
+✅ CORRECT: "The website uses Cloudflare for content delivery, security (WAF), and TLS/SSL management."
+❌ WRONG: "The website uses Cloudflare for content delivery, security (WAF), and"`;
+
+
+
+
 
       const result = await model.generateContent(prompt);
       const response = await result.response;
@@ -628,8 +824,12 @@ RULES:
         .trim();
 
       const parsed = JSON.parse(jsonText);
+
+      // Clean and validate the structure
+      const cleaned = cleanDuplicateSections(parsed);
+
       console.log(`✅ Successfully formatted AI analysis using ${keyLabel} key`);
-      return parsed;
+      return cleaned;
 
     } catch (error) {
       lastError = error;
@@ -672,13 +872,44 @@ async function translateAiAnalysisToJapanese(formattedAnalysis) {
 INPUT JSON:
 ${JSON.stringify(formattedAnalysis, null, 2)}
 
-RULES:
-1. Return ONLY valid JSON with the EXACT same structure
-2. Translate ALL text content to Japanese
-3. Keep technical terms like URLs, IPs, version numbers unchanged
-4. Translate section headings, paragraphs, and bullet points
-5. Maintain professional tone suitable for a business security report
-6. The "title" should be translated to: "AIによるセキュリティ分析"
+CRITICAL RULES - MUST FOLLOW STRICTLY:
+
+**JSON FORMAT:**
+1. Return ONLY valid JSON - absolutely NO text before or after
+2. No markdown code blocks (no \`\`\`json) - just raw JSON
+3. Preserve the EXACT same structure as the input
+
+**TRANSLATION RULES:**
+4. Translate ALL text content to Japanese (headings, paragraphs, bullets)
+5. Keep technical terms unchanged: URLs, IPs, version numbers, HTTP headers
+6. The "title" should be: "AIによるセキュリティ分析"
+7. Maintain professional business Japanese (です/ます form)
+8. Use proper Japanese punctuation (。、 instead of .,)
+
+**NO DUPLICATES OR OVERLAPS:**
+9. Do NOT duplicate any sections - each heading appears EXACTLY ONCE
+10. Do NOT add new sections not in the input
+11. Preserve the exact number of sections from input (no more, no less)
+12. NEVER overlap or mix content between sections
+
+**COMPLETE CONTENT BLOCKS - CRITICAL:**
+13. Every translated paragraph MUST be COMPLETE with full sentences
+14. NEVER break paragraphs mid-sentence or mid-word
+15. Every bullet point must be a complete statement
+16. NO truncated text ending with "..." unless intentional ellipsis
+17. ALL translated paragraphs must be self-contained and readable
+18. Preserve complete sentence structure from English source
+
+**VALIDATION:**
+19. Double-check for duplicate headings before returning
+20. Verify EVERY paragraph ends with proper Japanese punctuation (。！？)
+21. Ensure no text overlaps between sections
+22. Count sections: output must match input exactly (same number of sections)
+23. Confirm ALL translated content is complete and readable
+
+EXAMPLE OF COMPLETE VS INCOMPLETE TRANSLATION:
+✅ CORRECT: "このサイトは、コンテンツ配信、セキュリティ（WAF）、およびTLS/SSL管理にCloudflareを利用しています。"
+❌ WRONG: "このサイトは、コンテンツ配信、セキュリティ（WAF）、および"
 
 OUTPUT (Japanese JSON only):`;
 
@@ -693,8 +924,124 @@ OUTPUT (Japanese JSON only):`;
         .trim();
 
       const parsed = JSON.parse(jsonText);
+
+      // Clean and validate the Japanese structure too
+      const cleaned = cleanDuplicateSections(parsed);
+
       console.log(`✅ Successfully translated AI analysis to Japanese using ${keyLabel} key`);
-      return parsed;
+      return cleaned;
+
+    } catch (error) {
+      lastError = error;
+      console.error(`❌ ${keyLabel} key failed for Japanese translation:`, error.message);
+
+      if (i === apiKeys.length - 1) break;
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+
+  throw new Error(`Japanese translation failed: ${lastError?.message}`);
+}
+
+/**
+ * Translate both AI analysis AND vulnerability details to Japanese in a SINGLE API call
+ * This reduces API costs by combining two translations into one
+ * @param {Object} formattedAnalysis - The formatted AI analysis object
+ * @param {Array} vulnerabilities - Array of vulnerability objects
+ * @returns {Promise<Object>} - Object with { aiAnalysis, vulnerabilities }
+ */
+async function translateToJapanese(formattedAnalysis, vulnerabilities) {
+  const apiKeys = getApiKeys();
+  if (apiKeys.length === 0) {
+    throw new Error('No Gemini API keys configured');
+  }
+
+  let lastError = null;
+
+  for (let i = 0; i < apiKeys.length; i++) {
+    const apiKey = apiKeys[i];
+    const keyLabel = i === 0 ? 'primary' : `fallback #${i}`;
+
+    try {
+      console.log(`🌐 Translating AI analysis + vulnerabilities to Japanese using ${keyLabel} key...`);
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+      const prompt = `You are translating a security report from English to Japanese. You need to translate TWO things in a SINGLE response:
+
+1. AI Security Analysis (JSON object)
+2. Vulnerability Details (JSON array)
+
+Return a JSON object with this structure:
+{
+  "aiAnalysis": { ...translated AI analysis... },
+  "vulnerabilities": [ ...translated vulnerabilities array... ]
+}
+
+INPUT AI ANALYSIS:
+${JSON.stringify(formattedAnalysis, null, 2)}
+
+INPUT VULNERABILITIES:
+${JSON.stringify(vulnerabilities, null, 2)}
+
+CRITICAL RULES - MUST FOLLOW STRICTLY:
+
+**JSON FORMAT:**
+1. Return ONLY valid JSON object with "aiAnalysis" and "vulnerabilities" keys
+2. No markdown code blocks (no \`\`\`json) - just raw JSON
+3. Preserve the EXACT same structure for both inputs
+
+**TRANSLATION RULES FOR AI ANALYSIS:**
+4. Translate ALL text content to Japanese (headings, paragraphs, bullets)
+5. The "title" should be: "AIによるセキュリティ分析"
+6. Maintain professional business Japanese (です/ます form)
+7. Use proper Japanese punctuation (。、 instead of .,)
+8. Keep technical terms unchanged: URLs, IPs, version numbers, HTTP headers
+9. Do NOT duplicate sections - each heading appears EXACTLY ONCE
+10. Every paragraph MUST be COMPLETE with full sentences - NO truncation
+
+**TRANSLATION RULES FOR VULNERABILITIES:**
+11. Translate "description" and "solution" fields to professional Japanese
+12. Keep "name", "risk", "confidence", "reference", "cweid", "wascid", "totalOccurrences" fields unchanged
+13. Maintain technical accuracy - do NOT change technical terms like HTTP headers, URLs, code snippets
+14. Preserve complete sentence structure - NO fragmented translations
+
+**VALIDATION:**
+15. Verify EVERY paragraph ends with proper Japanese punctuation (。！？)
+16. Ensure ALL translated content is complete and readable
+17. Double-check JSON structure is valid
+
+EXAMPLE OF COMPLETE VS INCOMPLETE TRANSLATION:
+✅ CORRECT: "このサイトは、コンテンツ配信、セキュリティ（WAF）、およびTLS/SSL管理にCloudflareを利用しています。"
+❌ WRONG: "このサイトは、コンテンツ配信、セキュリティ（WAF）、および"
+
+OUTPUT (Japanese JSON object only):`;
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      let jsonText = response.text().trim();
+
+      jsonText = jsonText
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+
+      const parsed = JSON.parse(jsonText);
+
+      if (!parsed.aiAnalysis || !parsed.vulnerabilities) {
+        throw new Error('Invalid response structure - missing aiAnalysis or vulnerabilities');
+      }
+
+      // Clean and validate the Japanese AI analysis
+      const cleanedAiAnalysis = cleanDuplicateSections(parsed.aiAnalysis);
+
+      console.log(`✅ Successfully translated AI analysis + ${parsed.vulnerabilities.length} vulnerabilities to Japanese using ${keyLabel} key`);
+      return {
+        aiAnalysis: cleanedAiAnalysis,
+        vulnerabilities: parsed.vulnerabilities
+      };
 
     } catch (error) {
       lastError = error;
@@ -714,7 +1061,8 @@ module.exports = {
   formatReportForPdf,
   formatScanDataForPdf,
   formatAiAnalysisForPdf,
-  translateAiAnalysisToJapanese
+  translateAiAnalysisToJapanese,  // Keep for backwards compatibility
+  translateToJapanese  // NEW: Combined translation function
 };
 
 /**

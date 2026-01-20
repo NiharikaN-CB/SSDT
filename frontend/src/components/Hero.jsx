@@ -35,6 +35,7 @@ const Hero = () => {
   const [activeScanId, setActiveScanId] = useState(null);
   const [scanUrl, setScanUrl] = useState('');
   const stopPollingRef = useRef(false); // Flag to stop polling when scan is stopped
+  const isPollingRef = useRef(false); // Flag to prevent duplicate polling instances
   const abortControllerRef = useRef(null); // AbortController for cancelling in-flight requests
 
   // ⚡ ZAP is now handled by backend combined scan - keeping zapReport for backward compatibility with useEffect
@@ -300,6 +301,13 @@ const Hero = () => {
 
   // 🔄 Reusable polling function
   const pollAnalysis = async (analysisId, token) => {
+    // Prevent duplicate polling instances (React StrictMode / double useEffect)
+    if (isPollingRef.current) {
+      console.log('⚠️ Polling already in progress, skipping duplicate call');
+      return;
+    }
+    isPollingRef.current = true;
+
     let attempts = 0;
     // Increased from 60 to 450 attempts (15 minutes at 2-second intervals)
     // ZAP scans can take 5-10+ minutes, so we need longer polling
@@ -309,6 +317,7 @@ const Hero = () => {
       // Check if polling was stopped (user clicked Stop Scan)
       if (stopPollingRef.current) {
         console.log('🛑 Polling stopped by user');
+        isPollingRef.current = false;
         return;
       }
 
@@ -349,6 +358,7 @@ const Hero = () => {
           localStorage.removeItem('activeScan');
           setActiveScanId(null);
           setScanUrl('');
+          isPollingRef.current = false; // Reset polling flag
           setTimeout(() => {
             setLoading(false);
             setLoadingProgress(0);
@@ -357,16 +367,19 @@ const Hero = () => {
         } else if (status === 'failed') {
           localStorage.removeItem('activeScan');
           setActiveScanId(null);
+          isPollingRef.current = false; // Reset polling flag
           throw new Error('Analysis failed: ' + (analysisData.error || 'Unknown error'));
         } else if (status === 'stopped') {
           localStorage.removeItem('activeScan');
           setActiveScanId(null);
           setLoading(false);
           setLoadingStage('Scan was stopped');
+          isPollingRef.current = false; // Reset polling flag
         } else if (attempts >= maxAttempts) {
           setLoading(false);
           setLoadingProgress(0);
           setLoadingStage('');
+          isPollingRef.current = false; // Reset polling flag
           console.log('Max attempts reached, showing partial results');
         } else {
           // Show progress indicators based on what we have
@@ -396,14 +409,17 @@ const Hero = () => {
         // If request was aborted (user clicked stop), exit gracefully
         if (pollError.name === 'AbortError') {
           console.log('🛑 Request aborted - scan was stopped by user');
+          isPollingRef.current = false; // Reset polling flag
           return;
         }
         // If polling was stopped by user, don't throw - just exit gracefully
         if (stopPollingRef.current) {
           console.log('🛑 Polling error ignored - scan was stopped by user');
+          isPollingRef.current = false; // Reset polling flag
           return;
         }
         console.error('Polling error:', pollError);
+        isPollingRef.current = false; // Reset polling flag
         throw pollError;
       }
     };
@@ -431,6 +447,7 @@ const Hero = () => {
     setReport(null);
     setScanUrl(url);
     stopPollingRef.current = false; // Reset stop flag for new scan
+    isPollingRef.current = false; // Reset polling flag for new scan
 
     // ⚡ ZAP and WebCheck are now both integrated in the backend combined scan
     // Backend triggers both scans independently and saves results to MongoDB
@@ -543,16 +560,6 @@ const Hero = () => {
       return map[grade[0]] || '#888';
     };
 
-    // ⚡ ZAP Helpers
-    const getZapRiskColor = (risk) => {
-      switch (risk) {
-        case 'High': return '#e81123';
-        case 'Medium': return '#ff8c00';
-        case 'Low': return '#ffb900';
-        default: return '#00d084';
-      }
-    };
-
     // ⚡ ZAP Helpers - Now using backend zapData with status support
     let zapRiskLabel = "Passed";
     let zapRiskColor = "#00d084";
@@ -580,12 +587,18 @@ const Hero = () => {
     }
 
     // 🔍 WebCheck data - now comes from backend via polling
-    // Structure: { status: 'running'|'completed'|'failed', results: {...}, progress: 0-100 }
+    // Structure: { status: 'running'|'uploading'|'completed'|'completed_with_errors'|'completed_partial'|'failed', results: {...}, progress: 0-100 }
     const backendWebCheckData = report?.webCheckData;
-    const webCheckReport = backendWebCheckData?.status === 'completed'
+    const webCheckCompleted = backendWebCheckData?.status === 'completed' ||
+                              backendWebCheckData?.status === 'completed_with_errors' ||
+                              backendWebCheckData?.status === 'completed_partial';
+    const webCheckReport = webCheckCompleted
       ? backendWebCheckData.results
       : (backendWebCheckData?.partialResults || {});
-    const webCheckLoading = backendWebCheckData?.status === 'running';
+    const webCheckLoading = backendWebCheckData?.status === 'running' || backendWebCheckData?.status === 'uploading';
+    const webCheckUploading = backendWebCheckData?.status === 'uploading';
+    const webCheckUploadProgress = backendWebCheckData?.uploadProgress || 0;
+    const webCheckMessage = backendWebCheckData?.message || '';
     const webCheckError = backendWebCheckData?.status === 'failed';
 
     return (
@@ -752,7 +765,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🔐 SSL Certificate</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.ssl && !webCheckReport.ssl.error ? (
               <>
                 <span className="score-card__value score-card__value--safe">Valid</span>
@@ -768,7 +781,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🛡️ Security Headers</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.['http-security'] && !webCheckReport['http-security'].error ? (
               <>
                 {(() => {
@@ -789,7 +802,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🛠️ Tech Stack</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : (() => {
               // Handle various response formats from tech-stack scan
               const techData = webCheckReport?.['tech-stack'];
@@ -817,7 +830,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🔥 Firewall</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.firewall && !webCheckReport.firewall.error ? (
               <>
                 <span className={`score-card__value score-card__value--${webCheckReport.firewall.hasWaf ? 'safe' : 'medium'}`}>
@@ -835,7 +848,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🔒 TLS Grade</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.tls && !webCheckReport.tls.error ? (
               <>
                 <span className="score-card__value" style={{ color: getObservatoryGradeColor(webCheckReport.tls.tlsInfo?.grade) }}>
@@ -853,7 +866,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">📊 Quality</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.quality && !webCheckReport.quality.error ? (
               (() => {
                 const perfScore = Math.round((webCheckReport.quality.lighthouseResult?.categories?.performance?.score || 0) * 100);
@@ -876,7 +889,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">📧 Mail Config</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.['mail-config'] && !webCheckReport['mail-config'].error && !webCheckReport['mail-config'].skipped ? (
               <>
                 <span className="score-card__value score-card__value--safe">
@@ -896,7 +909,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">📋 WHOIS</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.whois && !webCheckReport.whois.error ? (
               <>
                 <span className="score-card__value score-card__value--safe" style={{ fontSize: '0.9rem' }}>
@@ -914,7 +927,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🔐 HSTS</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.hsts && !webCheckReport.hsts.error ? (
               <>
                 <span className={`score-card__value score-card__value--${webCheckReport.hsts.hstsEnabled ? 'safe' : 'high'}`}>
@@ -932,7 +945,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🚫 Block Lists</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.['block-lists'] && !webCheckReport['block-lists'].error ? (
               (() => {
                 const blocklists = webCheckReport['block-lists'].blocklists || [];
@@ -956,7 +969,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🌱 Carbon</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.carbon && !webCheckReport.carbon.error ? (
               <>
                 <span className={`score-card__value score-card__value--${webCheckReport.carbon.isGreen ? 'safe' : 'medium'}`}>
@@ -974,7 +987,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">📚 Archives</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.archives?.skipped ? (
               <div className="score-card__label" style={{ color: '#888', marginTop: '10px' }}>Not Archived</div>
             ) : webCheckReport?.archives?.totalScans ? (
@@ -996,7 +1009,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🗺️ Sitemap</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.sitemap?.skipped || webCheckReport?.sitemap?.error ? (
               <div className="score-card__label" style={{ color: '#888', marginTop: '10px' }}>Not Found</div>
             ) : webCheckReport?.sitemap?.urlset ? (
@@ -1018,7 +1031,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">📱 Social Tags</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.['social-tags'] && !webCheckReport['social-tags'].error ? (
               (() => {
                 const tags = webCheckReport['social-tags'];
@@ -1042,7 +1055,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🔗 Links</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.['linked-pages'] && !webCheckReport['linked-pages'].error ? (
               <>
                 <span className="score-card__value score-card__value--safe">
@@ -1059,7 +1072,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">↪️ Redirects</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.redirects && !webCheckReport.redirects.error ? (
               <>
                 <span className={`score-card__value score-card__value--${(webCheckReport.redirects.redirects?.length || 0) <= 2 ? 'safe' : 'medium'}`}>
@@ -1076,7 +1089,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🌐 DNS Server</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.['dns-server'] && !webCheckReport['dns-server'].error ? (
               <>
                 <span className="score-card__value score-card__value--safe" style={{ fontSize: '1.2rem' }}>
@@ -1093,7 +1106,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🔑 DNSSEC</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.dnssec && !webCheckReport.dnssec.error ? (
               <>
                 <span className={`score-card__value score-card__value--${webCheckReport.dnssec.isValid || webCheckReport.dnssec.enabled ? 'safe' : 'medium'}`} style={{ fontSize: '1.2rem' }}>
@@ -1110,7 +1123,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">📄 Security.txt</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.['security-txt'] && !webCheckReport['security-txt'].error ? (
               <>
                 <span className={`score-card__value score-card__value--${webCheckReport['security-txt'].isPresent || webCheckReport['security-txt'].found ? 'safe' : 'medium'}`} style={{ fontSize: '1.2rem' }}>
@@ -1127,7 +1140,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🤖 Robots.txt</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.['robots-txt'] && !webCheckReport['robots-txt'].error ? (
               <>
                 <span className={`score-card__value score-card__value--${webCheckReport['robots-txt'].exists || webCheckReport['robots-txt'].isPresent ? 'safe' : 'medium'}`} style={{ fontSize: '1.2rem' }}>
@@ -1144,7 +1157,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">🟢 Status</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.status && !webCheckReport.status.error ? (
               <>
                 <span className={`score-card__value score-card__value--${webCheckReport.status.isUp || webCheckReport.status.statusCode === 200 ? 'safe' : 'high'}`}>
@@ -1161,7 +1174,7 @@ const Hero = () => {
           <div className="score-card">
             <h4 className="score-card__title">📈 Rank</h4>
             {webCheckLoading ? (
-              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>Scanning...</div>
+              <div className="score-card__loading" style={{ color: 'var(--accent)', fontSize: '1rem' }}>{webCheckUploading ? `Uploading ${webCheckUploadProgress}%` : 'Scanning...'}</div>
             ) : webCheckReport?.['legacy-rank'] && !webCheckReport['legacy-rank'].error ? (
               <>
                 <span className="score-card__value score-card__value--safe" style={{ fontSize: '1rem' }}>

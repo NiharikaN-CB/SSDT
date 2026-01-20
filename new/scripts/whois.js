@@ -1,6 +1,5 @@
 import net from 'net';
 import psl from 'psl';
-import axios from 'axios';
 import middleware from './_common/middleware.js';
 
 const getBaseDomain = (url) => {
@@ -19,7 +18,7 @@ const parseWhoisData = (data) => {
   if (data.includes('No match for')) {
     return { error: 'No matches found for domain in internic database'};
   }
-  
+
   const lines = data.split('\r\n');
   const parsedData = {};
 
@@ -68,19 +67,13 @@ const fetchFromInternic = async (hostname) => {
     client.on('error', (err) => {
       reject(err);
     });
-  });
-};
 
-const fetchFromMyAPI = async (hostname) => {
-  try {
-    const response = await axios.post('https://whois-api-zeta.vercel.app/', {
-      domain: hostname
+    // Add timeout for Internic connection
+    client.setTimeout(10000, () => {
+      client.destroy();
+      reject(new Error('WHOIS connection timeout'));
     });
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching data from your API:', error.message);
-    return null;
-  }
+  });
 };
 
 const whoisHandler = async (url) => {
@@ -95,17 +88,22 @@ const whoisHandler = async (url) => {
     throw new Error(`Unable to parse URL: ${error}`);
   }
 
-  const [internicData, whoisData] = await Promise.all([
-    fetchFromInternic(hostname),
-    fetchFromMyAPI(hostname)
-  ]);
+  const internicData = await fetchFromInternic(hostname);
 
-  return {
-    internicData,
-    whoisData
+  // Transform data to match frontend expectations
+  const transformedData = {
+    registrar: internicData?.Registrar || null,
+    createdDate: internicData?.Creation_Date || null,
+    expiresDate: internicData?.Registry_Expiry_Date || null,
+    updatedDate: internicData?.Updated_Date || null,
+    // Keep raw data for advanced users
+    _raw: {
+      internicData
+    }
   };
+
+  return transformedData;
 };
 
 export const handler = middleware(whoisHandler);
 export default handler;
-

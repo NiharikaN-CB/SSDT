@@ -1,13 +1,19 @@
 const axios = require('axios');
 const ScanResult = require('../models/ScanResult');
+const gridfsService = require('./gridfsService');
 
 // Internal Docker URL or localhost for native development
 const WEBCHECK_BASE_URL = process.env.WEBCHECK_URI || 'http://localhost:3002';
 
+// GridFS bucket name for WebCheck results
+const WEBCHECK_BUCKET = 'webcheck_results';
+
 // All available scan types
+// Note: 'screenshot' is commented out - using urlscan screenshot instead
 const ALLOWED_SCANS = [
     'ssl', 'dns', 'headers', 'cookies', 'firewall', 'ports',
-    'screenshot', 'tech-stack', 'hsts', 'security-txt', 'block-lists',
+    // 'screenshot', // Using urlscan screenshot instead
+    'tech-stack', 'hsts', 'security-txt', 'block-lists',
     'social-tags', 'linked-pages', 'robots-txt', 'sitemap', 'status',
     'redirects', 'mail-config', 'trace-route', 'http-security', 'get-ip',
     'dns-server', 'dnssec', 'txt-records', 'carbon', 'archives',
@@ -105,6 +111,98 @@ const runAllScans = async (url) => {
 };
 
 /**
+ * Extract a lightweight summary from WebCheck results for MongoDB storage
+ * Full results are stored in GridFS
+ * @param {object} results - Full WebCheck results
+ * @returns {object} - Lightweight summary
+ */
+const extractWebCheckSummary = (results) => {
+    const summary = {};
+
+    // SSL/TLS info (keep essential fields)
+    if (results.ssl && !results.ssl.error) {
+        summary.ssl = {
+            valid: results.ssl.valid,
+            issuer: results.ssl.issuer,
+            expires: results.ssl.expires,
+            protocol: results.ssl.protocol
+        };
+    }
+
+    // TLS grade from Observatory
+    if (results.tls && !results.tls.error) {
+        summary.tls = {
+            grade: results.tls.tlsInfo?.grade || results.tls.grade,
+            score: results.tls.tlsInfo?.score || results.tls.score
+        };
+    }
+
+    // Headers security summary
+    if (results.headers && !results.headers.error) {
+        summary.headers = {
+            hasHSTS: !!results.headers['strict-transport-security'],
+            hasCSP: !!results.headers['content-security-policy'],
+            hasXFrameOptions: !!results.headers['x-frame-options'],
+            hasXContentType: !!results.headers['x-content-type-options']
+        };
+    }
+
+    // HSTS status
+    if (results.hsts && !results.hsts.error) {
+        summary.hsts = {
+            enabled: results.hsts.enabled || results.hsts.preloaded || false,
+            maxAge: results.hsts.maxAge
+        };
+    }
+
+    // Firewall/WAF detection
+    if (results.firewall && !results.firewall.error) {
+        summary.firewall = {
+            detected: results.firewall.detected || results.firewall.hasWaf || false,
+            name: results.firewall.name || results.firewall.wafName
+        };
+    }
+
+    // Tech stack (limit to first 10)
+    if (results['tech-stack'] && !results['tech-stack'].error) {
+        const techs = results['tech-stack'].technologies || results['tech-stack'];
+        summary.techStack = Array.isArray(techs) ? techs.slice(0, 10) : [];
+    }
+
+    // DNS basic info
+    if (results.dns && !results.dns.error) {
+        summary.dns = {
+            hasA: !!results.dns.A?.length,
+            hasAAAA: !!results.dns.AAAA?.length,
+            hasMX: !!results.dns.MX?.length
+        };
+    }
+
+    // WHOIS basic info
+    if (results.whois && !results.whois.error) {
+        summary.whois = {
+            registrar: results.whois.registrar,
+            createdDate: results.whois.createdDate,
+            expiresDate: results.whois.expiresDate
+        };
+    }
+
+    // Quality score if available
+    if (results.quality && !results.quality.error) {
+        summary.quality = {
+            score: results.quality.score,
+            grade: results.quality.grade
+        };
+    }
+
+    // Count errors
+    summary.errorCount = Object.values(results).filter(r => r && r.error).length;
+    summary.successCount = Object.values(results).filter(r => r && !r.error).length;
+
+    return summary;
+};
+
+/**
  * Start WebCheck scans asynchronously (runs in background, saves to MongoDB)
  * Similar pattern to ZAP async scanning
  * @param {string} url - Target URL to scan
@@ -116,9 +214,38 @@ const startAsyncWebCheckScan = async (url, analysisId, userId) => {
     console.log(`[WebCheck] 🚀 Starting async WebCheck scan for: ${url}`);
     console.log(`[WebCheck] Analysis ID: ${analysisId}`);
 
-    // Check if there's already an active scan for this analysis
+    // CHECK DATABASE FIRST - this is the source of truth for production
+    // This prevents duplicate scans even if backend restarts
+    try {
+        const existingScan = await ScanResult.findOne({ analysisId, userId });
+
+        if (existingScan?.webCheckResult) {
+            const status = existingScan.webCheckResult.status;
+
+            // If scan is already running or completed, don't start another
+            if (status === 'running') {
+                console.log(`[WebCheck] ⏭️ Scan already running in DB for ${analysisId}`);
+                return {
+                    status: 'running',
+                    message: 'WebCheck scan already in progress',
+                    progress: existingScan.webCheckResult.progress || 0,
+                    analysisId
+                };
+            }
+
+            if (status === 'completed' || status === 'completed_with_errors') {
+                console.log(`[WebCheck] ⏭️ Scan already completed in DB for ${analysisId}`);
+                return existingScan.webCheckResult;
+            }
+        }
+    } catch (dbError) {
+        console.error('[WebCheck] Failed to check existing scan:', dbError.message);
+        // Continue anyway - better to risk duplicate than fail completely
+    }
+
+    // Also check in-memory Map (for same-request race conditions)
     if (activeWebCheckScans.has(analysisId)) {
-        console.log(`[WebCheck] ⏭️ Scan already in progress for ${analysisId}`);
+        console.log(`[WebCheck] ⏭️ Scan already in memory for ${analysisId}`);
         return {
             status: 'running',
             message: 'WebCheck scan already in progress',
@@ -126,7 +253,7 @@ const startAsyncWebCheckScan = async (url, analysisId, userId) => {
         };
     }
 
-    // Mark scan as active
+    // Mark scan as active in memory (for cancellation support)
     activeWebCheckScans.set(analysisId, {
         url,
         userId,
@@ -135,21 +262,49 @@ const startAsyncWebCheckScan = async (url, analysisId, userId) => {
         total: ALLOWED_SCANS.length
     });
 
-    // Initialize WebCheck result in database with pending status
+    // Initialize WebCheck result in database with running status
+    // Use atomic findOneAndUpdate to prevent race conditions
+    // NOTE: Must set entire webCheckResult object (not nested paths) because
+    // MongoDB can't create nested fields inside a null value
     try {
-        await ScanResult.findOneAndUpdate(
-            { analysisId, userId },
+        const result = await ScanResult.findOneAndUpdate(
             {
-                webCheckResult: {
-                    status: 'running',
-                    progress: 0,
-                    completedScans: 0,
-                    totalScans: ALLOWED_SCANS.length,
-                    message: 'Starting WebCheck scans...',
-                    startedAt: new Date()
+                analysisId,
+                userId,
+                // Only update if not already running (atomic check)
+                $or: [
+                    { webCheckResult: null },
+                    { webCheckResult: { $exists: false } },
+                    { 'webCheckResult.status': { $exists: false } },
+                    { 'webCheckResult.status': { $nin: ['running', 'completed', 'completed_with_errors'] } }
+                ]
+            },
+            {
+                // Set entire object to avoid "Cannot create field in null" error
+                $set: {
+                    webCheckResult: {
+                        status: 'running',
+                        progress: 0,
+                        completedScans: 0,
+                        totalScans: ALLOWED_SCANS.length,
+                        message: 'Starting WebCheck scans...',
+                        startedAt: new Date()
+                    }
                 }
-            }
+            },
+            { new: true }
         );
+
+        // If no document was updated, scan was already started by another request
+        if (!result) {
+            console.log(`[WebCheck] ⏭️ Another request already started scan for ${analysisId}`);
+            // DON'T delete from Map - another request is running the scan and needs the Map entry
+            // activeWebCheckScans.delete(analysisId); // REMOVED - caused race condition bug
+
+            // Fetch current status
+            const current = await ScanResult.findOne({ analysisId, userId });
+            return current?.webCheckResult || { status: 'running', analysisId };
+        }
     } catch (dbError) {
         console.error('[WebCheck] Failed to initialize DB record:', dbError.message);
     }
@@ -198,12 +353,20 @@ const runWebCheckInBackground = async (url, analysisId, userId) => {
             return;
         }
 
-        // Run batch of scans in parallel
+        // Run batch of scans in parallel with per-scan timeout
         const batchPromises = batch.map(async (scanType) => {
             try {
-                const data = await runScan(scanType, url);
+                // Add a hard timeout of 150 seconds per scan
+                // This ensures hanging scans don't block the entire batch indefinitely
+                const scanPromise = runScan(scanType, url);
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error(`${scanType} scan timeout after 150s`)), 150000);
+                });
+
+                const data = await Promise.race([scanPromise, timeoutPromise]);
                 return { type: scanType, success: true, data };
             } catch (error) {
+                console.warn(`[WebCheck] ${scanType} scan failed:`, error.message);
                 return { type: scanType, success: false, error: error.message };
             }
         });
@@ -228,19 +391,23 @@ const runWebCheckInBackground = async (url, analysisId, userId) => {
         }
 
         // Update progress in database after each batch
+        // Don't store partialResults - they can exceed MongoDB 16MB limit
         const progress = Math.round((completedCount / ALLOWED_SCANS.length) * 100);
         try {
             await ScanResult.findOneAndUpdate(
                 { analysisId, userId },
                 {
-                    webCheckResult: {
-                        status: 'running',
-                        progress,
-                        completedScans: completedCount,
-                        totalScans: ALLOWED_SCANS.length,
-                        message: `Completed ${completedCount}/${ALLOWED_SCANS.length} scans...`,
-                        partialResults: results,
-                        startedAt: new Date(startTime)
+                    $set: {
+                        webCheckResult: {
+                            status: 'running',
+                            progress,
+                            completedScans: completedCount,
+                            totalScans: ALLOWED_SCANS.length,
+                            message: `Completed ${completedCount}/${ALLOWED_SCANS.length} scans...`,
+                            // Only store lightweight partial summary during progress
+                            partialSummary: extractWebCheckSummary(results),
+                            startedAt: new Date(startTime)
+                        }
                     }
                 }
             );
@@ -260,27 +427,127 @@ const runWebCheckInBackground = async (url, analysisId, userId) => {
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`[WebCheck] ✅ All scans complete for ${url} in ${duration}s`);
 
-    // Save final results to database
+    // Truncate large data arrays to prevent bloat
+    // Archives (Wayback Machine) can have tens of thousands of entries for old domains
+    if (results.archives && Array.isArray(results.archives) && results.archives.length > 20) {
+        const originalCount = results.archives.length;
+        results.archives = results.archives.slice(0, 20);
+        console.log(`[WebCheck] ✂️ Truncated archives from ${originalCount} to 20 entries`);
+    }
+
+    // Log size of each scan type to identify bloat
+    console.log(`[WebCheck] 📊 Size breakdown by scan type:`);
+    const scanSizes = [];
+    for (const [scanType, data] of Object.entries(results)) {
+        const scanJson = JSON.stringify(data);
+        const scanSize = Buffer.byteLength(scanJson, 'utf-8');
+        const scanSizeMB = (scanSize / (1024 * 1024)).toFixed(3);
+        scanSizes.push({ type: scanType, size: scanSize, sizeMB: scanSizeMB });
+    }
+    // Sort by size descending and log all
+    scanSizes.sort((a, b) => b.size - a.size);
+    scanSizes.forEach((s, i) => {
+        console.log(`   ${i + 1}. ${s.type}: ${s.sizeMB}MB`);
+    });
+
+    // Convert results to JSON
+    const resultsJson = JSON.stringify(results, null, 2);
+    const resultsSize = Buffer.byteLength(resultsJson, 'utf-8');
+    const resultsSizeMB = (resultsSize / (1024 * 1024)).toFixed(2);
+    console.log(`[WebCheck] 📊 Total results size: ${resultsSizeMB}MB`);
+
+    // Extract summary for MongoDB (lightweight data only)
+    const summary = extractWebCheckSummary(results);
+
+    // Decide storage strategy based on size
+    // MongoDB doc limit is 16MB, but we use 10MB as safe threshold
+    const GRIDFS_THRESHOLD = 10 * 1024 * 1024; // 10MB
+    let resultsFileId = null;
+    let fullResults = null;
+
+    if (resultsSize > GRIDFS_THRESHOLD) {
+        // Large data - use GridFS
+        console.log(`[WebCheck] 📤 Data exceeds ${GRIDFS_THRESHOLD / (1024 * 1024)}MB, using GridFS...`);
+
+        // Update status to show uploading in progress
+        try {
+            await ScanResult.findOneAndUpdate(
+                { analysisId, userId },
+                {
+                    $set: {
+                        'webCheckResult.status': 'uploading',
+                        'webCheckResult.uploadProgress': 0,
+                        'webCheckResult.message': `Uploading ${resultsSizeMB}MB to storage...`
+                    }
+                }
+            );
+        } catch (e) {
+            console.warn('[WebCheck] Failed to update uploading status:', e.message);
+        }
+
+        // Progress callback to update database with upload progress
+        const onUploadProgress = async ({ percent, uploadedMB, totalMB, elapsed }) => {
+            try {
+                await ScanResult.findOneAndUpdate(
+                    { analysisId, userId },
+                    {
+                        $set: {
+                            'webCheckResult.uploadProgress': percent,
+                            'webCheckResult.message': `Uploading: ${uploadedMB}MB / ${totalMB}MB (${percent}%) - ${elapsed}s`
+                        }
+                    }
+                );
+            } catch (e) {
+                // Ignore update errors to not slow down upload
+            }
+        };
+
+        try {
+            resultsFileId = await gridfsService.uploadFile(
+                resultsJson,
+                `webcheck_results_${analysisId}.json`,
+                { analysisId, userId, contentType: 'application/json' },
+                WEBCHECK_BUCKET,
+                600000, // timeout
+                onUploadProgress // progress callback
+            );
+            console.log(`[WebCheck] 📦 Full results stored in GridFS: ${resultsFileId}`);
+        } catch (gridfsError) {
+            console.error('[WebCheck] ❌ Failed to store results in GridFS:', gridfsError.message);
+            // Fallback: save full results directly (may fail if > 16MB)
+            fullResults = results;
+        }
+    } else {
+        // Small data - save directly to MongoDB (no GridFS needed)
+        console.log(`[WebCheck] 💾 Data under threshold, saving directly to MongoDB`);
+        fullResults = results;
+    }
+
+    // Save to database
     try {
         await ScanResult.findOneAndUpdate(
             { analysisId, userId },
             {
-                webCheckResult: {
-                    status: 'completed',
-                    progress: 100,
-                    completedScans: ALLOWED_SCANS.length,
-                    totalScans: ALLOWED_SCANS.length,
-                    message: 'WebCheck scan completed',
-                    results,
-                    hasErrors,
-                    duration: parseFloat(duration),
-                    completedAt: new Date()
+                $set: {
+                    webCheckResult: {
+                        status: hasErrors ? 'completed_with_errors' : 'completed',
+                        progress: 100,
+                        completedScans: ALLOWED_SCANS.length,
+                        totalScans: ALLOWED_SCANS.length,
+                        message: 'WebCheck scan completed',
+                        summary, // Lightweight summary for display
+                        fullResults, // Full results (if small enough)
+                        resultsFileId, // GridFS reference (if large)
+                        hasErrors,
+                        duration: parseFloat(duration),
+                        completedAt: new Date()
+                    }
                 }
             }
         );
-        console.log(`[WebCheck] 💾 Final results saved to database for ${analysisId}`);
+        console.log(`[WebCheck] 💾 Results saved to database for ${analysisId}`);
     } catch (dbError) {
-        console.error('[WebCheck] Failed to save final results:', dbError.message);
+        console.error('[WebCheck] Failed to save results:', dbError.message);
     }
 
     // Remove from active scans
@@ -310,6 +577,46 @@ const getActiveScanStatus = (analysisId) => {
     return activeWebCheckScans.get(analysisId) || null;
 };
 
+/**
+ * Retrieve full WebCheck results
+ * Checks inline fullResults first, then GridFS if needed
+ * @param {object} webCheckResult - The webCheckResult object from ScanResult
+ * @returns {Promise<object|null>} Full results or null if not found
+ */
+const getFullResults = async (webCheckResult) => {
+    if (!webCheckResult) {
+        console.log('[WebCheck] getFullResults: No webCheckResult provided');
+        return null;
+    }
+
+    console.log(`[WebCheck] getFullResults: status=${webCheckResult.status}, hasFullResults=${!!webCheckResult.fullResults}, hasResultsFileId=${!!webCheckResult.resultsFileId}`);
+
+    // Check for inline results first (most common case without screenshots)
+    if (webCheckResult.fullResults) {
+        const keys = Object.keys(webCheckResult.fullResults);
+        console.log(`[WebCheck] getFullResults: Found inline fullResults with ${keys.length} scan types`);
+        return webCheckResult.fullResults;
+    }
+
+    // Fall back to GridFS for large results
+    if (webCheckResult.resultsFileId) {
+        console.log(`[WebCheck] getFullResults: Fetching from GridFS, fileId=${webCheckResult.resultsFileId}`);
+        try {
+            const buffer = await gridfsService.downloadFile(webCheckResult.resultsFileId, WEBCHECK_BUCKET);
+            const results = JSON.parse(buffer.toString('utf-8'));
+            const keys = Object.keys(results);
+            console.log(`[WebCheck] getFullResults: Retrieved ${keys.length} scan types from GridFS`);
+            return results;
+        } catch (error) {
+            console.error('[WebCheck] Failed to retrieve results from GridFS:', error.message);
+            return null;
+        }
+    }
+
+    console.log('[WebCheck] getFullResults: No fullResults or resultsFileId found');
+    return null;
+};
+
 module.exports = {
     runScan,
     runAllScans,
@@ -318,5 +625,6 @@ module.exports = {
     startAsyncWebCheckScan,
     stopWebCheckScan,
     getActiveScanStatus,
+    getFullResults,
     ALLOWED_SCANS
 };

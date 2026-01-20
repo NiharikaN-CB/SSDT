@@ -19,56 +19,75 @@ const tlsHandler = async (url) => {
       const isV2 = baseUrl.includes('mdn.mozilla.net');
 
       try {
-        console.log(`[TLS] Trying Observatory endpoint ${i + 1}/${OBSERVATORY_ENDPOINTS.length}`);
+        console.log(`[TLS] Trying Observatory endpoint ${i + 1}/${OBSERVATORY_ENDPOINTS.length}: ${baseUrl}`);
+
+        // Create AbortController for hard timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
 
         // For v2 API (MDN)
         if (isV2) {
-          const scanResponse = await axios.post(
-            `${baseUrl}/scan?host=${encodeURIComponent(domain)}`,
-            {},
-            { timeout: 60000 }
-          );
-
-          // Get test details if available
-          let testResults = null;
           try {
-            const testsResponse = await axios.get(
-              `${baseUrl}/tests?host=${encodeURIComponent(domain)}`,
-              { timeout: 30000 }
+            const scanResponse = await axios.post(
+              `${baseUrl}/scan?host=${encodeURIComponent(domain)}`,
+              {},
+              { timeout: 30000, signal: controller.signal }
             );
-            testResults = testsResponse.data;
-          } catch (e) {
-            // Tests might not be ready yet
-          }
+            clearTimeout(timeoutId);
 
-          return {
-            scan: scanResponse.data,
-            tests: testResults,
-            tlsInfo: {
-              grade: scanResponse.data.grade || 'N/A',
-              score: scanResponse.data.score || 0,
-              endTime: scanResponse.data.end_time,
-              host: domain,
-              statusCode: scanResponse.data.status_code
+            console.log(`[TLS] Endpoint ${i + 1} succeeded with grade: ${scanResponse.data.grade || 'N/A'}`);
+
+            // Get test details if available (quick timeout)
+            let testResults = null;
+            try {
+              const testsResponse = await axios.get(
+                `${baseUrl}/tests?host=${encodeURIComponent(domain)}`,
+                { timeout: 10000 }
+              );
+              testResults = testsResponse.data;
+            } catch (e) {
+              // Tests might not be ready yet - not critical
             }
-          };
+
+            return {
+              scan: scanResponse.data,
+              tests: testResults,
+              tlsInfo: {
+                grade: scanResponse.data.grade || 'N/A',
+                score: scanResponse.data.score || 0,
+                endTime: scanResponse.data.end_time,
+                host: domain,
+                statusCode: scanResponse.data.status_code
+              }
+            };
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+          }
         } else {
           // For v1 API (legacy)
-          const analyzeResponse = await axios.post(
-            `${baseUrl}/analyze?host=${encodeURIComponent(domain)}`,
-            {},
-            { timeout: 60000 }
-          );
+          try {
+            const analyzeResponse = await axios.post(
+              `${baseUrl}/analyze?host=${encodeURIComponent(domain)}`,
+              {},
+              { timeout: 30000, signal: controller.signal }
+            );
+            clearTimeout(timeoutId);
+            console.log(`[TLS] Endpoint ${i + 1} succeeded with grade: ${analyzeResponse.data.grade || 'N/A'}`);
 
-          return {
-            scan: analyzeResponse.data,
-            tlsInfo: {
-              grade: analyzeResponse.data.grade || 'N/A',
-              score: analyzeResponse.data.score || 0,
-              scanId: analyzeResponse.data.scan_id,
-              host: domain
-            }
-          };
+            return {
+              scan: analyzeResponse.data,
+              tlsInfo: {
+                grade: analyzeResponse.data.grade || 'N/A',
+                score: analyzeResponse.data.score || 0,
+                scanId: analyzeResponse.data.scan_id,
+                host: domain
+              }
+            };
+          } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+          }
         }
       } catch (error) {
         lastError = error;

@@ -7,7 +7,7 @@ services:
   # OWASP ZAP Scanner - Production Configuration (v4.0)
   # Handles 15K+ URLs, prevents video file loops, eliminates crashes
   zap:
-    image: zaproxy/zap-stable
+    image: ghcr.io/zaproxy/zaproxy:stable
     container_name: zap-scanner
     restart: unless-stopped
     ports:
