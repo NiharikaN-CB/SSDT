@@ -9,6 +9,7 @@ const { refineReport } = require('../services/geminiService');
 const { runZapScan, startAsyncZapScan, stopCombinedScan } = require('../services/zapService');
 const { runUrlScan } = require('../services/urlscanService');
 const { startAsyncWebCheckScan, stopWebCheckScan, getFullResults } = require('../services/webCheckService');
+const gridfsService = require('../services/gridfsService');
 const { generatePdfReport } = require('../services/pdfService');
 const ScanResult = require('../models/ScanResult');
 const auth = require('../middleware/auth');
@@ -1148,7 +1149,32 @@ router.get('/download-complete-json/:id', auth, async (req, res) => {
       });
     }
 
-    // Prepare complete JSON data package
+    // Fetch full ZAP detailed alerts from GridFS (not truncated)
+    let fullZapAlerts = [];
+    if (scan.zapResult?.reportFiles?.length > 0) {
+      const detailedAlertsFile = scan.zapResult.reportFiles.find(
+        f => f.filename && f.filename.includes('detailed_alerts')
+      );
+
+      if (detailedAlertsFile && detailedAlertsFile.fileId) {
+        try {
+          console.log(`📥 Fetching full ZAP alerts from GridFS for JSON export: ${detailedAlertsFile.fileId}`);
+          const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId);
+          fullZapAlerts = JSON.parse(detailedAlertsBuffer.toString('utf-8'));
+          console.log(`✅ Retrieved ${fullZapAlerts.length} full ZAP alerts from GridFS`);
+        } catch (gridfsError) {
+          console.warn(`⚠️ Failed to fetch ZAP alerts from GridFS: ${gridfsError.message}`);
+          // Fallback to truncated alerts from MongoDB
+          fullZapAlerts = scan.zapResult?.alerts || [];
+        }
+      } else {
+        fullZapAlerts = scan.zapResult?.alerts || [];
+      }
+    } else {
+      fullZapAlerts = scan.zapResult?.alerts || [];
+    }
+
+    // Prepare complete JSON data package with RAW OWASP ZAP structure
     const completeData = {
       metadata: {
         scanId: scan.analysisId,
@@ -1172,7 +1198,9 @@ router.get('/download-complete-json/:id', auth, async (req, res) => {
         results: scan.webCheckResult ? await getFullResults(scan.webCheckResult) : null,
         summary: scan.webCheckResult?.summary || null
       },
+      // RAW OWASP ZAP format with full alert structure
       zap: {
+        site: scan.target,
         summary: {
           riskCounts: scan.zapResult?.riskCounts || null,
           totalAlerts: scan.zapResult?.totalAlerts || null,
@@ -1181,7 +1209,21 @@ router.get('/download-complete-json/:id', auth, async (req, res) => {
           status: scan.zapResult?.status || null,
           completedAt: scan.zapResult?.completedAt || null
         },
-        alerts: scan.zapResult?.alerts || [],
+        // Full OWASP ZAP alerts structure with complete remediation text
+        alerts: fullZapAlerts.map(alert => ({
+          alert: alert.alert || alert.name,
+          riskcode: alert.risk === 'High' ? 3 : alert.risk === 'Medium' ? 2 : alert.risk === 'Low' ? 1 : 0,
+          risk: alert.risk,
+          confidence: alert.confidence,
+          riskdesc: `${alert.risk} (${alert.confidence})`,
+          description: alert.description || '',
+          solution: alert.solution || '',
+          reference: alert.reference || '',
+          cweid: alert.cweid || '',
+          wascid: alert.wascid || '',
+          instances: alert.occurrences || alert.sampleUrls?.map(url => ({ uri: url })) || [],
+          count: alert.totalOccurrences || alert.occurrences?.length || 0
+        })),
         reportFiles: scan.zapResult?.reportFiles || []
       },
       aiAnalysis: {

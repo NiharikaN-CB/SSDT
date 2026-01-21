@@ -5,6 +5,7 @@ const {
     formatAiAnalysisForPdf,
     translateToJapanese
 } = require('./geminiService');
+const gridfsService = require('./gridfsService');
 
 // Font paths
 const FONTS = {
@@ -54,6 +55,43 @@ async function generatePdfReport(scanResult) {
         console.log(`🔍 ZAP alerts: ${zapSection.alerts?.length || 0} items`);
         if (zapSection.detailedAlerts && zapSection.detailedAlerts.length > 0) {
             console.log(`🔍 First detailedAlert: ${JSON.stringify(zapSection.detailedAlerts[0]).substring(0, 200)}`);
+        }
+    }
+
+    // CRITICAL FIX: Fetch full detailed alerts from GridFS to avoid truncated remediation text
+    // The MongoDB summaryAlerts truncate solution to 150 chars, but GridFS has the full text
+    if (zapSection && scanResult.zapResult?.reportFiles?.length > 0) {
+        const detailedAlertsFile = scanResult.zapResult.reportFiles.find(
+            f => f.filename && f.filename.includes('detailed_alerts')
+        );
+
+        if (detailedAlertsFile && detailedAlertsFile.fileId) {
+            try {
+                console.log(`📥 Fetching full detailed alerts from GridFS: ${detailedAlertsFile.fileId}`);
+                const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId);
+                const fullDetailedAlerts = JSON.parse(detailedAlertsBuffer.toString('utf-8'));
+
+                // Replace truncated alerts with full ones
+                zapSection.detailedAlerts = fullDetailedAlerts.map(alert => ({
+                    name: alert.alert,
+                    risk: alert.risk,
+                    confidence: alert.confidence,
+                    description: alert.description || 'No description available',
+                    solution: alert.solution || 'No solution provided',
+                    reference: alert.reference || '',
+                    cweid: alert.cweid,
+                    wascid: alert.wascid,
+                    totalOccurrences: alert.totalOccurrences || alert.occurrences?.length || 0
+                }));
+
+                console.log(`✅ Replaced with ${zapSection.detailedAlerts.length} full detailed alerts from GridFS`);
+                if (zapSection.detailedAlerts.length > 0 && zapSection.detailedAlerts[0].solution) {
+                    console.log(`🔍 First solution length: ${zapSection.detailedAlerts[0].solution.length} chars (full text)`);
+                }
+            } catch (gridfsError) {
+                console.warn(`⚠️ Failed to fetch detailed alerts from GridFS: ${gridfsError.message}`);
+                console.warn('⚠️ Using truncated alerts from MongoDB (solution text may be incomplete)');
+            }
         }
     }
 
