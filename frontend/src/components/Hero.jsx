@@ -54,6 +54,18 @@ const Hero = () => {
   const [pdfDownloading, setPdfDownloading] = useState(false);
   const [pdfProgress, setPdfProgress] = useState(0);
   const [pdfProgressMessage, setPdfProgressMessage] = useState('');
+  const [pdfDropdownOpen, setPdfDropdownOpen] = useState(false);
+
+  // Close PDF dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (pdfDropdownOpen && !e.target.closest('.pdf-dropdown-container')) {
+        setPdfDropdownOpen(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [pdfDropdownOpen]);
 
   // Translate entire report when language changes
   useEffect(() => {
@@ -598,7 +610,6 @@ const Hero = () => {
     const webCheckLoading = backendWebCheckData?.status === 'running' || backendWebCheckData?.status === 'uploading';
     const webCheckUploading = backendWebCheckData?.status === 'uploading';
     const webCheckUploadProgress = backendWebCheckData?.uploadProgress || 0;
-    const webCheckMessage = backendWebCheckData?.message || '';
     const webCheckError = backendWebCheckData?.status === 'failed';
 
     return (
@@ -1568,82 +1579,163 @@ const Hero = () => {
               Download your complete security scan results in your preferred format
             </p>
             <div className="download-buttons">
-              <button
-                className="download-btn download-btn--pdf"
-                disabled={pdfDownloading}
-                onClick={async () => {
-                  try {
-                    setPdfDownloading(true);
-                    setPdfProgress(0);
-                    setPdfProgressMessage('Initializing PDF generation...');
+              {/* PDF Download Dropdown */}
+              <div className="pdf-dropdown-container">
+                <button
+                  className="download-btn download-btn--pdf"
+                  disabled={pdfDownloading}
+                  onClick={() => !pdfDownloading && setPdfDropdownOpen(!pdfDropdownOpen)}
+                >
+                  {pdfDownloading ? '⏳ Generating...' : '📄 Download PDF Report ▾'}
+                </button>
 
-                    // Simulate progress since backend doesn't provide real-time updates
-                    const progressSteps = [
-                      { progress: 10, message: 'Formatting scan data (EN + JA)...', delay: 2000 },
-                      { progress: 25, message: 'Waiting for API rate limit...', delay: 8000 },
-                      { progress: 35, message: 'Still waiting...', delay: 10000 },
-                      { progress: 45, message: 'Formatting AI analysis...', delay: 15000 },
-                      { progress: 55, message: 'Waiting for API rate limit...', delay: 8000 },
-                      { progress: 65, message: 'Still waiting...', delay: 10000 },
-                      { progress: 75, message: 'Translating to Japanese...', delay: 15000 },
-                      { progress: 85, message: 'Rendering PDF document...', delay: 5000 },
-                      { progress: 95, message: 'Finalizing...', delay: 3000 },
-                    ];
+                {pdfDropdownOpen && !pdfDownloading && (
+                  <div className="pdf-dropdown-menu">
+                    <button
+                      onClick={async () => {
+                        setPdfDropdownOpen(false);
+                        try {
+                          setPdfDownloading(true);
+                          setPdfProgress(0);
+                          setPdfProgressMessage('Initializing English PDF...');
 
-                    let currentStep = 0;
-                    const progressInterval = setInterval(() => {
-                      if (currentStep < progressSteps.length) {
-                        setPdfProgress(progressSteps[currentStep].progress);
-                        setPdfProgressMessage(progressSteps[currentStep].message);
-                        currentStep++;
-                      }
-                    }, 8000); // Update every 8 seconds
+                          // Progress steps for English (faster - no translation)
+                          const progressSteps = [
+                            { progress: 15, message: 'Formatting scan data...', delay: 2000 },
+                            { progress: 35, message: 'Waiting for API rate limit...', delay: 8000 },
+                            { progress: 55, message: 'Formatting AI analysis...', delay: 15000 },
+                            { progress: 80, message: 'Rendering PDF document...', delay: 5000 },
+                            { progress: 95, message: 'Finalizing...', delay: 3000 },
+                          ];
 
-                    const token = localStorage.getItem('token');
-                    const response = await fetch(`${API_BASE}/api/vt/download-pdf/${report.analysisId}`, {
-                      headers: { 'x-auth-token': token }
-                    });
+                          let currentStep = 0;
+                          const progressInterval = setInterval(() => {
+                            if (currentStep < progressSteps.length) {
+                              setPdfProgress(progressSteps[currentStep].progress);
+                              setPdfProgressMessage(progressSteps[currentStep].message);
+                              currentStep++;
+                            }
+                          }, 6000);
 
-                    clearInterval(progressInterval);
+                          const token = localStorage.getItem('token');
+                          const response = await fetch(`${API_BASE}/api/vt/download-pdf/${report.analysisId}?lang=en`, {
+                            headers: { 'x-auth-token': token }
+                          });
 
-                    if (!response.ok) {
-                      const errorData = await response.json().catch(() => ({}));
-                      throw new Error(errorData.error || 'PDF download failed');
-                    }
+                          clearInterval(progressInterval);
 
-                    setPdfProgress(100);
-                    setPdfProgressMessage('Download complete!');
+                          if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({}));
+                            throw new Error(errorData.error || 'PDF download failed');
+                          }
 
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `security_report_${report.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                    console.log('✅ PDF report downloaded');
+                          setPdfProgress(100);
+                          setPdfProgressMessage('Download complete!');
 
-                    // Reset after a short delay
-                    setTimeout(() => {
-                      setPdfDownloading(false);
-                      setPdfProgress(0);
-                      setPdfProgressMessage('');
-                    }, 2000);
-                  } catch (err) {
-                    console.error('❌ PDF download failed:', err);
-                    setPdfProgressMessage(`Error: ${err.message}`);
-                    setTimeout(() => {
-                      setPdfDownloading(false);
-                      setPdfProgress(0);
-                      setPdfProgressMessage('');
-                    }, 3000);
-                  }
-                }}
-              >
-                {pdfDownloading ? '⏳ Generating...' : '📄 Download PDF Report'}
-              </button>
+                          const blob = await response.blob();
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `security_report_EN_${report.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
+                          document.body.appendChild(a);
+                          a.click();
+                          window.URL.revokeObjectURL(url);
+                          document.body.removeChild(a);
+                          console.log('✅ English PDF report downloaded');
+
+                          setTimeout(() => {
+                            setPdfDownloading(false);
+                            setPdfProgress(0);
+                            setPdfProgressMessage('');
+                          }, 2000);
+                        } catch (err) {
+                          console.error('❌ PDF download failed:', err);
+                          setPdfProgressMessage(`Error: ${err.message}`);
+                          setTimeout(() => {
+                            setPdfDownloading(false);
+                            setPdfProgress(0);
+                            setPdfProgressMessage('');
+                          }, 3000);
+                        }
+                      }}
+                    >
+                      English Version
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setPdfDropdownOpen(false);
+                        try {
+                          setPdfDownloading(true);
+                          setPdfProgress(0);
+                          setPdfProgressMessage('Initializing Japanese PDF...');
+
+                          // Progress steps for Japanese (includes translation)
+                          const progressSteps = [
+                            { progress: 10, message: 'Formatting scan data...', delay: 2000 },
+                            { progress: 25, message: 'Waiting for API rate limit...', delay: 8000 },
+                            { progress: 40, message: 'Formatting AI analysis...', delay: 15000 },
+                            { progress: 55, message: 'Waiting for API rate limit...', delay: 8000 },
+                            { progress: 70, message: 'Translating to Japanese...', delay: 15000 },
+                            { progress: 85, message: 'Rendering PDF document...', delay: 5000 },
+                            { progress: 95, message: 'Finalizing...', delay: 3000 },
+                          ];
+
+                          let currentStep = 0;
+                          const progressInterval = setInterval(() => {
+                            if (currentStep < progressSteps.length) {
+                              setPdfProgress(progressSteps[currentStep].progress);
+                              setPdfProgressMessage(progressSteps[currentStep].message);
+                              currentStep++;
+                            }
+                          }, 8000);
+
+                          const token = localStorage.getItem('token');
+                          const response = await fetch(`${API_BASE}/api/vt/download-pdf/${report.analysisId}?lang=ja`, {
+                            headers: { 'x-auth-token': token }
+                          });
+
+                          clearInterval(progressInterval);
+
+                          if (!response.ok) {
+                            const errorData = await response.json().catch(() => ({}));
+                            throw new Error(errorData.error || 'PDF download failed');
+                          }
+
+                          setPdfProgress(100);
+                          setPdfProgressMessage('Download complete!');
+
+                          const blob = await response.blob();
+                          const url = window.URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `security_report_JA_${report.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
+                          document.body.appendChild(a);
+                          a.click();
+                          window.URL.revokeObjectURL(url);
+                          document.body.removeChild(a);
+                          console.log('✅ Japanese PDF report downloaded');
+
+                          setTimeout(() => {
+                            setPdfDownloading(false);
+                            setPdfProgress(0);
+                            setPdfProgressMessage('');
+                          }, 2000);
+                        } catch (err) {
+                          console.error('❌ PDF download failed:', err);
+                          setPdfProgressMessage(`Error: ${err.message}`);
+                          setTimeout(() => {
+                            setPdfDownloading(false);
+                            setPdfProgress(0);
+                            setPdfProgressMessage('');
+                          }, 3000);
+                        }
+                      }}
+                    >
+                      Japanese Version
+                    </button>
+                  </div>
+                )}
+              </div>
               <button
                 className="download-btn download-btn--json"
                 disabled={pdfDownloading}

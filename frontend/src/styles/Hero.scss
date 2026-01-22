@@ -522,6 +522,54 @@ body.dark {
       transform: translateY(0);
     }
   }
+
+  // PDF Language Dropdown
+  .pdf-dropdown-container {
+    position: relative;
+    display: inline-block;
+  }
+
+  .pdf-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    min-width: 200px;
+    background: #1f2937;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 20px rgba(0, 176, 198, 0.2);
+    margin-top: 8px;
+    overflow: hidden;
+
+    button {
+      display: block;
+      width: 100%;
+      padding: 14px 20px;
+      text-align: center;
+      background: transparent;
+      border: none;
+      color: #e5e7eb;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-transform: none;
+      letter-spacing: normal;
+
+      &:hover {
+        background: rgba(0, 176, 198, 0.15);
+        color: var(--accent-light);
+        transform: none;
+        box-shadow: none;
+      }
+
+      &:not(:last-child) {
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+    }
+  }
 }
 
 /* Light Theme Adjustments for Report Sections */
@@ -540,5 +588,24 @@ body.light {
 
   .download-section {
     background: rgba(255, 255, 255, 0.75);
+
+    .pdf-dropdown-menu {
+      background: #ffffff;
+      border-color: #d1d5db;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+
+      button {
+        color: #374151;
+
+        &:hover {
+          background: rgba(0, 95, 115, 0.1);
+          color: #005f73;
+        }
+
+        &:not(:last-child) {
+          border-bottom-color: #e5e7eb;
+        }
+      }
+    }
   }
 }

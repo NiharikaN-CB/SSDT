@@ -680,6 +680,141 @@ function getTypeColor(type) {
     }
 }
 
+/**
+ * Generate a single-language PDF report (English or Japanese only)
+ * @param {Object} scanResult - The complete scan result from MongoDB
+ * @param {string} lang - Language code ('en' or 'ja')
+ * @returns {Promise<Buffer>} - PDF as a buffer
+ */
+async function generateSingleLanguagePdf(scanResult, lang = 'en') {
+    console.log(`📄 Starting ${lang.toUpperCase()} PDF generation...`);
+
+    const isJapanese = lang === 'ja';
+
+    // Step 1: Format scan data (includes English + Japanese labels)
+    console.log('📊 Step 1: Formatting scan data...');
+    let scanData;
+    try {
+        scanData = await formatScanDataForPdf(scanResult);
+    } catch (error) {
+        console.error('❌ Failed to format scan data:', error.message);
+        throw new Error('Failed to format scan data for PDF');
+    }
+
+    // Fetch full ZAP detailed alerts from GridFS
+    const zapSection = scanData.sections?.find(s => s.id === 'zap');
+    if (zapSection && scanResult.zapResult?.reportFiles?.length > 0) {
+        const detailedAlertsFile = scanResult.zapResult.reportFiles.find(
+            f => f.filename && f.filename.includes('detailed_alerts')
+        );
+
+        if (detailedAlertsFile && detailedAlertsFile.fileId) {
+            try {
+                console.log(`📥 Fetching full detailed alerts from GridFS: ${detailedAlertsFile.fileId}`);
+                const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId);
+                const fullDetailedAlerts = JSON.parse(detailedAlertsBuffer.toString('utf-8'));
+
+                zapSection.detailedAlerts = fullDetailedAlerts.map(alert => ({
+                    name: alert.alert,
+                    risk: alert.risk,
+                    confidence: alert.confidence,
+                    description: alert.description || 'No description available',
+                    solution: alert.solution || 'No solution provided',
+                    reference: alert.reference || '',
+                    cweid: alert.cweid,
+                    wascid: alert.wascid,
+                    totalOccurrences: alert.totalOccurrences || alert.occurrences?.length || 0
+                }));
+                console.log(`✅ Loaded ${zapSection.detailedAlerts.length} full detailed alerts from GridFS`);
+            } catch (gridfsError) {
+                console.warn(`⚠️ Failed to fetch detailed alerts from GridFS: ${gridfsError.message}`);
+            }
+        }
+    }
+
+    // Wait for rate limit
+    console.log(`⏳ Waiting ${RATE_LIMIT_DELAY / 1000}s for rate limit...`);
+    await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY));
+
+    // Step 2: Format AI analysis (English)
+    console.log('📝 Step 2: Formatting AI analysis...');
+    let aiAnalysis = null;
+    if (scanResult.refinedReport) {
+        try {
+            aiAnalysis = await formatAiAnalysisForPdf(scanResult.refinedReport);
+        } catch (error) {
+            console.error('⚠️ Failed to format AI analysis:', error.message);
+        }
+    }
+
+    // Get vulnerabilities
+    const vulnerabilities = zapSection?.detailedAlerts || [];
+
+    // Step 3: For Japanese, translate content
+    let aiAnalysisToUse = aiAnalysis;
+    let vulnerabilitiesToUse = vulnerabilities;
+
+    if (isJapanese && (aiAnalysis || vulnerabilities.length > 0)) {
+        console.log(`⏳ Waiting ${RATE_LIMIT_DELAY / 1000}s for rate limit...`);
+        await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY));
+
+        console.log('🌐 Step 3: Translating to Japanese...');
+        try {
+            const japaneseData = await translateToJapanese(
+                aiAnalysis || {},
+                vulnerabilities || []
+            );
+            aiAnalysisToUse = japaneseData.aiAnalysis;
+            vulnerabilitiesToUse = japaneseData.vulnerabilities;
+            console.log(`✅ Translated ${vulnerabilitiesToUse.length} vulnerabilities to Japanese`);
+        } catch (error) {
+            console.error('⚠️ Failed to translate to Japanese:', error.message);
+            // Fall back to English if translation fails
+        }
+    } else if (!isJapanese) {
+        console.log('⏭️ Skipping translation for English PDF');
+    }
+
+    console.log(`✅ Gemini calls completed, generating ${lang.toUpperCase()} PDF...`);
+
+    // Generate the PDF
+    return new Promise((resolve, reject) => {
+        try {
+            const doc = new PDFDocument({
+                size: 'A4',
+                bufferPages: true,
+                margins: { top: 50, bottom: 50, left: 50, right: 50 },
+                info: {
+                    Title: `Security Scan Report (${lang.toUpperCase()}) - ${scanResult.target}`,
+                    Author: 'SSDT Security Scanner',
+                    Subject: 'Comprehensive Security and Performance Analysis',
+                    CreationDate: new Date()
+                }
+            });
+
+            // Register Japanese fonts
+            doc.registerFont('NotoSans', FONTS.regular);
+            doc.registerFont('NotoSans-Bold', FONTS.bold);
+
+            const chunks = [];
+            doc.on('data', chunk => chunks.push(chunk));
+            doc.on('end', () => resolve(Buffer.concat(chunks)));
+            doc.on('error', reject);
+
+            // Render single language version
+            renderReport(doc, scanData, aiAnalysisToUse, vulnerabilitiesToUse, lang);
+
+            // Add footers
+            addFooters(doc);
+
+            doc.end();
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
 module.exports = {
-    generatePdfReport
+    generatePdfReport,
+    generateSingleLanguagePdf
 };

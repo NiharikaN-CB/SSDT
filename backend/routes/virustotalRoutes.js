@@ -10,7 +10,7 @@ const { runZapScan, startAsyncZapScan, stopCombinedScan } = require('../services
 const { runUrlScan } = require('../services/urlscanService');
 const { startAsyncWebCheckScan, stopWebCheckScan, getFullResults } = require('../services/webCheckService');
 const gridfsService = require('../services/gridfsService');
-const { generatePdfReport } = require('../services/pdfService');
+const { generatePdfReport, generateSingleLanguagePdf } = require('../services/pdfService');
 const ScanResult = require('../models/ScanResult');
 const auth = require('../middleware/auth');
 const { combinedScanLimiter } = require('../middleware/rateLimiter');
@@ -1321,17 +1321,23 @@ router.post('/stop-scan/:id', auth, async (req, res) => {
   }
 });
 
-// 🔟 Download PDF Report (Protected route)
+// 🔟 Download PDF Report (Protected route) - Supports language selection
 router.get('/download-pdf/:id', auth, async (req, res) => {
   try {
     const { id } = req.params;
     const forceRegenerate = req.query.regenerate === 'true';
+    const lang = req.query.lang || 'en';
+
+    // Validate language parameter
+    if (!['en', 'ja'].includes(lang)) {
+      return res.status(400).json({ error: 'Invalid language. Use "en" or "ja"' });
+    }
 
     if (!id) {
       return res.status(400).json({ error: 'Analysis ID is required' });
     }
 
-    console.log(`📄 PDF download requested for: ${id}`);
+    console.log(`📄 PDF download requested for: ${id} (language: ${lang.toUpperCase()})`);
 
     // Find the scan
     const scan = await ScanResult.findOne({
@@ -1355,10 +1361,14 @@ router.get('/download-pdf/:id', auth, async (req, res) => {
 
     let pdfBuffer;
 
-    // Check if we have a cached PDF and don't need to regenerate
-    if (scan.pdfReport && !forceRegenerate) {
-      console.log('📄 Using cached PDF from database');
-      pdfBuffer = scan.pdfReport;
+    // Determine cache field based on language
+    const cacheField = lang === 'en' ? 'pdfReportEn' : 'pdfReportJa';
+    const cacheTimeField = lang === 'en' ? 'pdfGeneratedAtEn' : 'pdfGeneratedAtJa';
+
+    // Check if we have a cached PDF for this language
+    if (scan[cacheField] && !forceRegenerate) {
+      console.log(`📄 Using cached ${lang.toUpperCase()} PDF from database`);
+      pdfBuffer = scan[cacheField];
     } else {
       // Ensure WebCheck fullResults is populated (might be in GridFS)
       if (scan.webCheckResult && !scan.webCheckResult.fullResults && scan.webCheckResult.resultsFileId) {
@@ -1374,32 +1384,33 @@ router.get('/download-pdf/:id', auth, async (req, res) => {
         }
       }
 
-      // Generate new PDF
-      console.log('📄 Generating new PDF report...');
-      pdfBuffer = await generatePdfReport(scan);
+      // Generate new single-language PDF
+      console.log(`📄 Generating new ${lang.toUpperCase()} PDF report...`);
+      pdfBuffer = await generateSingleLanguagePdf(scan, lang);
 
-      // Store PDF in database for caching
+      // Store PDF in database for caching (language-specific field)
       await ScanResult.updateOne(
         { analysisId: id },
         {
           $set: {
-            pdfReport: pdfBuffer,
-            pdfGeneratedAt: new Date()
+            [cacheField]: pdfBuffer,
+            [cacheTimeField]: new Date()
           }
         }
       );
-      console.log('📄 PDF generated and cached in database');
+      console.log(`📄 ${lang.toUpperCase()} PDF generated and cached in database`);
     }
 
-    // Set headers for PDF download
-    const filename = `security_report_${scan.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
+    // Set headers for PDF download (include language in filename)
+    const langSuffix = lang.toUpperCase();
+    const filename = `security_report_${langSuffix}_${scan.target.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Length', pdfBuffer.length);
 
     // Send PDF
     res.send(pdfBuffer);
-    console.log(`✅ PDF report downloaded: ${filename}`);
+    console.log(`✅ ${lang.toUpperCase()} PDF report downloaded: ${filename}`);
 
   } catch (err) {
     console.error('❌ PDF generation error:', err);

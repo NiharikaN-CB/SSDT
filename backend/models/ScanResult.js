@@ -49,12 +49,29 @@ const scanResultSchema = new mongoose.Schema({
     type: String,
     default: null
   },
-  // Generated PDF report (cached)
+  // Generated PDF report (legacy combined - deprecated)
   pdfReport: {
     type: Buffer,
     default: null
   },
   pdfGeneratedAt: {
+    type: Date,
+    default: null
+  },
+  // Separate language PDF caches
+  pdfReportEn: {
+    type: Buffer,
+    default: null
+  },
+  pdfGeneratedAtEn: {
+    type: Date,
+    default: null
+  },
+  pdfReportJa: {
+    type: Buffer,
+    default: null
+  },
+  pdfGeneratedAtJa: {
     type: Date,
     default: null
   },
