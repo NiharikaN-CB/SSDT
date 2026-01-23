@@ -66,7 +66,70 @@
           cursor: not-allowed;
           box-shadow: none;
         }
+
+        &.pdf-btn {
+          background: linear-gradient(135deg, #ef4444, #dc2626);
+          box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+
+          &:hover:not(:disabled) {
+            background: linear-gradient(135deg, #f87171, #ef4444);
+            box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
+          }
+        }
       }
+
+      .zap-pdf-dropdown-container {
+        position: relative;
+
+        .zap-pdf-dropdown {
+          position: absolute;
+          top: 100%;
+          right: 0;
+          margin-top: 0.5rem;
+          background: var(--background);
+          border: 1px solid var(--outline);
+          border-radius: 8px;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+          overflow: hidden;
+          z-index: 100;
+          min-width: 160px;
+          animation: dropdownFade 0.2s ease-out;
+
+          .dropdown-item {
+            display: block;
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: transparent;
+            border: none;
+            color: var(--foreground);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+
+            &:hover {
+              background: var(--accent);
+              color: var(--background);
+            }
+
+            &:not(:last-child) {
+              border-bottom: 1px solid var(--outline);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @keyframes dropdownFade {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 
@@ -339,9 +402,24 @@
         flex-direction: column;
         align-items: flex-start;
         width: 100%;
+        gap: 0.75rem;
 
         .download-btn {
           width: 100%;
+        }
+
+        .zap-pdf-dropdown-container {
+          width: 100%;
+
+          .download-btn {
+            width: 100%;
+          }
+
+          .zap-pdf-dropdown {
+            left: 0;
+            right: 0;
+            min-width: unset;
+          }
         }
       }
     }

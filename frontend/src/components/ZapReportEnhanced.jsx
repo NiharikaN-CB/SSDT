@@ -2,7 +2,7 @@
 // Shows vulnerabilities grouped by type with expandable URL lists
 // File: frontend/src/components/ZapReportEnhanced.jsx
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import '../styles/ZapReportEnhanced.scss';
 
 const API_BASE = 'http://localhost:3001';
@@ -10,6 +10,20 @@ const API_BASE = 'http://localhost:3001';
 const ZapReportEnhanced = ({ zapData, scanId }) => {
     const [expandedAlerts, setExpandedAlerts] = useState(new Set());
     const [downloadingDetailed, setDownloadingDetailed] = useState(false);
+    const [pdfDropdownOpen, setPdfDropdownOpen] = useState(false);
+    const [downloadingPdf, setDownloadingPdf] = useState(false);
+    const [pdfLang, setPdfLang] = useState(null); // Track which language is downloading
+
+    // Close PDF dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (pdfDropdownOpen && !e.target.closest('.zap-pdf-dropdown-container')) {
+                setPdfDropdownOpen(false);
+            }
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, [pdfDropdownOpen]);
 
     if (!zapData || !zapData.alerts) {
         return null;
@@ -53,6 +67,40 @@ const ZapReportEnhanced = ({ zapData, scanId }) => {
         }
     };
 
+    const downloadPdfReport = async (lang) => {
+        setDownloadingPdf(true);
+        setPdfLang(lang);
+        setPdfDropdownOpen(false);
+        try {
+            const response = await fetch(`${API_BASE}/api/zap/detailed-report-pdf/${scanId}?lang=${lang}`, {
+                headers: {
+                    'x-auth-token': localStorage.getItem('token')
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || 'PDF download failed');
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `zap_vulnerability_report_${scanId}_${lang}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error) {
+            console.error('PDF download error:', error);
+            alert(`Failed to download PDF report: ${error.message}`);
+        } finally {
+            setDownloadingPdf(false);
+            setPdfLang(null);
+        }
+    };
+
     const getRiskColor = (risk) => {
         switch (risk) {
             case 'High': return '#e81123';
@@ -87,8 +135,38 @@ const ZapReportEnhanced = ({ zapData, scanId }) => {
                         disabled={downloadingDetailed}
                         className="download-btn"
                     >
-                        {downloadingDetailed ? 'Downloading...' : '📥 Download Full Report (All URLs)'}
+                        {downloadingDetailed ? 'Downloading...' : '📥 JSON Report'}
                     </button>
+
+                    {/* PDF Download Dropdown */}
+                    <div className="zap-pdf-dropdown-container">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setPdfDropdownOpen(!pdfDropdownOpen);
+                            }}
+                            disabled={downloadingPdf}
+                            className="download-btn pdf-btn"
+                        >
+                            {downloadingPdf ? `Generating ${pdfLang?.toUpperCase()}...` : '📄 PDF Report ▼'}
+                        </button>
+                        {pdfDropdownOpen && (
+                            <div className="zap-pdf-dropdown">
+                                <button
+                                    onClick={() => downloadPdfReport('en')}
+                                    className="dropdown-item"
+                                >
+                                    🇺🇸 English PDF
+                                </button>
+                                <button
+                                    onClick={() => downloadPdfReport('ja')}
+                                    className="dropdown-item"
+                                >
+                                    🇯🇵 日本語 PDF
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 

@@ -515,4 +515,58 @@ router.get('/detailed-report/:scanId', auth, async (req, res) => {
   }
 });
 
+// GET /api/zap/detailed-report-pdf/:scanId?lang=en|ja
+// Download ZAP vulnerability report as PDF with all URLs
+router.get('/detailed-report-pdf/:scanId', auth, async (req, res) => {
+  try {
+    const { scanId } = req.params;
+    const lang = req.query.lang === 'ja' ? 'ja' : 'en';
+
+    // Import dependencies
+    const ScanResult = require('../models/ScanResult');
+    const { generateZapPdf } = require('../services/pdfService');
+
+    // Find scan result by analysisId
+    const scanResult = await ScanResult.findOne({
+      analysisId: scanId,
+      userId: req.user.id  // Verify ownership
+    });
+
+    if (!scanResult) {
+      return res.status(404).json({ error: 'Scan not found' });
+    }
+
+    // Check if ZAP result exists
+    if (!scanResult.zapResult) {
+      return res.status(404).json({
+        error: 'ZAP report not available for this scan',
+        hint: 'This scan may not have completed ZAP scanning yet'
+      });
+    }
+
+    console.log(`📄 Generating ZAP PDF (${lang.toUpperCase()}) for scan: ${scanId}`);
+
+    // Generate PDF
+    const pdfBuffer = await generateZapPdf(scanResult, lang);
+
+    // Send PDF response
+    const filename = `zap_vulnerability_report_${scanId}_${lang}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+
+    console.log(`✅ ZAP PDF (${lang.toUpperCase()}) sent successfully: ${filename}`);
+
+  } catch (error) {
+    console.error('ZAP PDF generation error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Failed to generate ZAP PDF report',
+        details: error.message
+      });
+    }
+  }
+});
+
 module.exports = router;
