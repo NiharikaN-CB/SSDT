@@ -572,6 +572,90 @@ body.dark {
   }
 }
 
+/* Historical Scan Header */
+.historical-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+
+  .back-to-profile-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: transparent;
+    border: 2px solid var(--accent);
+    border-radius: 8px;
+    color: var(--accent);
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+
+    // Arrow icon
+    .btn-icon {
+      transition: transform 0.3s ease;
+    }
+
+    // Glow effect on hover
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(135deg, var(--accent), var(--accent-light));
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      z-index: -1;
+    }
+
+    &:hover {
+      color: var(--background);
+      border-color: var(--accent-light);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(0, 176, 198, 0.4), 0 0 30px rgba(0, 176, 198, 0.2);
+
+      &::before {
+        opacity: 1;
+      }
+
+      .btn-icon {
+        transform: translateX(-4px);
+      }
+    }
+
+    &:active {
+      transform: translateY(0);
+    }
+  }
+
+  .historical-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--foreground);
+
+    .highlight {
+      color: var(--accent-light);
+    }
+  }
+}
+
+.historical-meta {
+  color: var(--foreground-darker);
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+  font-family: var(--font-mono);
+}
+
 /* Light Theme Adjustments for Report Sections */
 body.light {
   .scan-progress-bar {

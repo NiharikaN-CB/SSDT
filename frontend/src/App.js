@@ -12,6 +12,7 @@ import OTPVerification from './pages/auth/OTPVerification';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import Profile from './pages/Profile';
+import ScanViewer from './pages/ScanViewer';
 // Translation imports
 import { TranslationProvider } from './contexts/TranslationContext';
 import { UserProvider, useUser } from './contexts/UserContext';
@@ -44,6 +45,7 @@ function AppContent() {
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/scan/:analysisId" element={<ScanViewer />} />
           </Routes>
         </BrowserRouter>
       </TranslationProvider>

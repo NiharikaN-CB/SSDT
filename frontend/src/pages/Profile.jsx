@@ -334,11 +334,23 @@ const Profile = () => {
             {recentScans.length > 0 ? (
               <div className="recent-scans">
                 {recentScans.map((scan) => (
-                  <div key={scan._id} className="scan-item">
+                  <div
+                    key={scan._id}
+                    className={`scan-item ${scan.status === 'completed' ? 'clickable' : ''}`}
+                    onClick={() => scan.status === 'completed' && navigate(`/scan/${scan.analysisId}`)}
+                    style={{
+                      cursor: scan.status === 'completed' ? 'pointer' : 'default',
+                      transition: 'all 0.2s ease'
+                    }}
+                    title={scan.status === 'completed' ? 'Click to view scan details' : `Scan ${scan.status}`}
+                  >
                     <div className="scan-target">{scan.target}</div>
                     <div className="scan-details">
                       <span className={`scan-status ${scan.status}`}>{scan.status}</span>
                       <span className="scan-date">{formatDate(scan.createdAt)}</span>
+                      {scan.status === 'completed' && (
+                        <span className="view-scan-icon" style={{ marginLeft: '0.5rem', opacity: 0.7 }}>→</span>
+                      )}
                     </div>
                   </div>
                 ))}

@@ -5,6 +5,7 @@ const axios = require('axios');
 const ScanResult = require('../models/ScanResult');
 const ZapAlert = require('../models/ZapAlert');
 const gridfsService = require('./gridfsService');
+const cleanupService = require('./cleanupService');
 
 // ============================================================================
 // ZAP API CONFIGURATION
@@ -1235,23 +1236,13 @@ async function runZapScanWithDB(targetUrl, userId, options = {}) {
   } catch (error) {
     console.error('❌ ZAP scan failed:', error.message);
 
-    // Update scan result with error
+    // Clean up failed scan immediately (no partial data)
     if (scanResult) {
       try {
-        await ScanResult.updateOne(
-          { analysisId: scanId },
-          {
-            $set: {
-              status: 'failed',
-              'zapResult.status': 'failed',
-              'zapResult.error': error.message,
-              'zapResult.failedAt': new Date(),
-              updatedAt: new Date()
-            }
-          }
-        );
-      } catch (updateError) {
-        console.error('Failed to update scan result with error:', updateError.message);
+        await cleanupService.cleanupFailedScan(scanId, scanResult.userId);
+        console.log(`🗑️ Cleaned up failed scan: ${scanId}`);
+      } catch (cleanupError) {
+        console.error('Failed to cleanup scan:', cleanupError.message);
       }
     }
 

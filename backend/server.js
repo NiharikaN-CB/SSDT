@@ -4,6 +4,7 @@ const cors = require('cors');
 const connectDB = require('./db');
 const { apiLimiter, authLimiter, scanLimiter } = require('./middleware/rateLimiter');
 const gridfsService = require('./services/gridfsService'); // GridFS for ZAP reports
+const { startCleanupJob } = require('./jobs/cleanupJob'); // Scheduled cleanup
 
 // 👇 IMPORT ZAP ROUTES
 const zapRoutes = require('./routes/zapRoutes');
@@ -31,6 +32,14 @@ connectDB().then(() => {
   } catch (error) {
     console.error('⚠️  GridFS initialization failed:', error.message);
     console.error('   Large file storage may not work properly');
+  }
+
+  // Start cleanup job for expired scans and orphaned data
+  try {
+    startCleanupJob();
+    console.log('✅ Cleanup job scheduler started');
+  } catch (error) {
+    console.error('⚠️  Cleanup job initialization failed:', error.message);
   }
 });
 

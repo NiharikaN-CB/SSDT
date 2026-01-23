@@ -24,12 +24,13 @@ const LoadingPlaceholder = ({ height = '1.5rem', width = '100%', style = {} }) =
   />
 );
 
-const Hero = () => {
+const Hero = ({ historicalScan }) => {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingStage, setLoadingStage] = useState('');
   const [error, setError] = useState(null);
+  const [isHistorical, setIsHistorical] = useState(false);
 
   // 🔄 Active scan tracking for stop/resume functionality
   const [activeScanId, setActiveScanId] = useState(null);
@@ -67,6 +68,85 @@ const Hero = () => {
     return () => document.removeEventListener('click', handleClickOutside);
   }, [pdfDropdownOpen]);
 
+  // Handle historical scan data passed as prop
+  useEffect(() => {
+    if (historicalScan) {
+      console.log('Loading historical scan data:', historicalScan.target);
+      // Transform historical scan data to match the report structure Hero expects
+      // Hero uses specific property names - must match exactly!
+      const transformedReport = {
+        target: historicalScan.target,
+        status: historicalScan.status,
+        analysisId: historicalScan.analysisId,
+        createdAt: historicalScan.createdAt,
+
+        // VT data - Hero uses vtStats and vtResult
+        hasVtResult: !!historicalScan.vtData,
+        vtResult: historicalScan.vtData,
+        vtStats: historicalScan.vtData || {},
+
+        // PSI data - extract scores from raw pagespeedResult structure
+        // Raw structure: psiData.lighthouseResult.categories.performance.score (0-1)
+        hasPsiResult: !!historicalScan.psiData,
+        psiScores: (() => {
+          const categories = historicalScan.psiData?.lighthouseResult?.categories || {};
+          if (!historicalScan.psiData || historicalScan.psiData.error) return {};
+          return {
+            performance: categories.performance?.score != null ? Math.round(categories.performance.score * 100) : null,
+            accessibility: categories.accessibility?.score != null ? Math.round(categories.accessibility.score * 100) : null,
+            bestPractices: categories['best-practices']?.score != null ? Math.round(categories['best-practices'].score * 100) : null,
+            seo: categories.seo?.score != null ? Math.round(categories.seo.score * 100) : null
+          };
+        })(),
+
+        // Observatory data - extract relevant fields, skip if error
+        hasObservatoryResult: !!historicalScan.obsData && !historicalScan.obsData.error,
+        observatoryData: (historicalScan.obsData && !historicalScan.obsData.error) ? {
+          grade: historicalScan.obsData.grade,
+          score: historicalScan.obsData.score,
+          tests_passed: historicalScan.obsData.tests_passed,
+          tests_failed: historicalScan.obsData.tests_failed,
+          tests_quantity: historicalScan.obsData.tests_quantity
+        } : null,
+
+        // ZAP data - Hero uses zapData with alerts array
+        hasZapResult: !!historicalScan.zapData,
+        zapData: historicalScan.zapData ? {
+          ...historicalScan.zapData,
+          status: historicalScan.zapData.status || 'completed',
+          alerts: historicalScan.zapData.alerts || historicalScan.zapData.detailedAlerts || []
+        } : null,
+
+        // URLScan data
+        hasUrlscanResult: !!historicalScan.urlscanData,
+        urlscanData: historicalScan.urlscanData,
+
+        // WebCheck data - transform fullResults to results for Hero compatibility
+        webCheckData: historicalScan.webCheckData ? {
+          ...historicalScan.webCheckData,
+          status: historicalScan.webCheckData.status || 'completed',
+          results: historicalScan.webCheckData.fullResults || historicalScan.webCheckData.results || {}
+        } : null,
+
+        // AI Report
+        hasRefinedReport: !!historicalScan.aiReport,
+        refinedReport: historicalScan.aiReport,
+        isPartial: false
+      };
+
+      console.log('Transformed report:', {
+        hasPsi: !!transformedReport.psiScores?.performance,
+        hasObs: !!transformedReport.observatoryData?.grade,
+        hasZap: !!transformedReport.zapData,
+        zapAlerts: transformedReport.zapData?.alerts?.length
+      });
+
+      setReport(transformedReport);
+      setIsHistorical(true);
+      setLoading(false);
+    }
+  }, [historicalScan]);
+
   // Translate entire report when language changes
   useEffect(() => {
     if (report || zapReport) {
@@ -80,6 +160,9 @@ const Hero = () => {
   // This handles: page refresh, browser tab killed, user returning hours later
   // The backend runs scans independently, so we just need to check the database
   useEffect(() => {
+    // Skip active scan check if viewing historical scan
+    if (historicalScan) return;
+
     const checkForActiveScan = async () => {
       const token = localStorage.getItem('token');
       if (!token) return;
@@ -176,7 +259,7 @@ const Hero = () => {
 
     checkForActiveScan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [historicalScan]);
 
   // Translate the report when language changes to Japanese
   useEffect(() => {
@@ -1798,23 +1881,46 @@ const Hero = () => {
   return (
     <section className="hero-container">
       <div className="hero-content">
-        <h1 className="hero-title">We give you <span className="highlight">X-Ray Vision</span> for your Website</h1>
-        <p className="hero-subtitle">In just 20 seconds, you can see what <span className="highlight">attackers already know</span></p>
-        <form className="analyze-form" onSubmit={handleSubmit}>
-          <label htmlFor="url-input">Enter a URL to start 👇</label>
-          <div className="input-wrapper">
-            <input id="url-input" name="url" type="text" placeholder="E.g. https://google.com" defaultValue={scanUrl || "https://google.com"} required disabled={loading} />
-            {!loading ? (
-              <button type="submit" className="analyze-button">
-                <span className="button-text">Analyze URL</span>
+        {isHistorical ? (
+          <>
+            {/* Historical scan header with animated back button */}
+            <div className="historical-header">
+              <button
+                className="back-to-profile-btn"
+                onClick={() => navigate('/profile')}
+              >
+                <span className="btn-icon">←</span>
+                <span>Back to Profile</span>
               </button>
-            ) : (
-              <button type="button" onClick={handleStopScan} className="stop-button">
-                <span className="button-text">Stop Scan</span>
-              </button>
-            )}
-          </div>
-        </form>
+              <h2 className="historical-title">
+                Historical Scan: <span className="highlight">{report?.target}</span>
+              </h2>
+            </div>
+            <p className="historical-meta">
+              Scanned on: {report?.createdAt ? new Date(report.createdAt).toLocaleString() : 'N/A'}
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="hero-title">We give you <span className="highlight">X-Ray Vision</span> for your Website</h1>
+            <p className="hero-subtitle">In just 20 seconds, you can see what <span className="highlight">attackers already know</span></p>
+            <form className="analyze-form" onSubmit={handleSubmit}>
+              <label htmlFor="url-input">Enter a URL to start</label>
+              <div className="input-wrapper">
+                <input id="url-input" name="url" type="text" placeholder="E.g. https://google.com" defaultValue={scanUrl || "https://google.com"} required disabled={loading} />
+                {!loading ? (
+                  <button type="submit" className="analyze-button">
+                    <span className="button-text">Analyze URL</span>
+                  </button>
+                ) : (
+                  <button type="button" onClick={handleStopScan} className="stop-button">
+                    <span className="button-text">Stop Scan</span>
+                  </button>
+                )}
+              </div>
+            </form>
+          </>
+        )}
         {renderReport()}
       </div>
     </section>

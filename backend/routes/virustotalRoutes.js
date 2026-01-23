@@ -243,19 +243,153 @@ router.get('/analysis/:id', auth, async (req, res) => {
 // 4️⃣ Get user's scan history (Protected route)
 router.get('/history', auth, async (req, res) => {
   try {
-    const scans = await ScanResult.find({ userId: req.user.id })
+    const { page = 1, limit = 10, status = 'completed' } = req.query;
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
+
+    // Build query - default to completed scans only
+    const query = { userId: req.user.id };
+    if (status !== 'all') {
+      query.status = status;
+    }
+
+    // Get total count for pagination
+    const total = await ScanResult.countDocuments(query);
+
+    // Get scans with pagination and select only needed fields
+    const scans = await ScanResult.find(query)
       .sort({ createdAt: -1 })
-      .limit(50);
+      .skip((pageNum - 1) * limitNum)
+      .limit(limitNum)
+      .select('analysisId target status createdAt updatedAt');
 
     res.json({
       success: true,
-      count: scans.length,
-      scans: scans
+      scans: scans,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: total,
+        pages: Math.ceil(total / limitNum)
+      }
     });
   } catch (err) {
     console.error('❌ History retrieval error:', err.message);
     res.status(500).json({
       error: 'Failed to retrieve scan history',
+      details: err.message
+    });
+  }
+});
+
+// 4.4️⃣ Load a saved scan by analysisId (Protected route)
+// Used to view past scans from scan history
+router.get('/scan/:analysisId', auth, async (req, res) => {
+  try {
+    const { analysisId } = req.params;
+
+    // Find the scan and verify ownership
+    const scan = await ScanResult.findOne({
+      analysisId,
+      userId: req.user.id
+    });
+
+    if (!scan) {
+      return res.status(404).json({
+        error: 'Scan not found',
+        message: 'The scan may have expired or does not exist'
+      });
+    }
+
+    // Check if scan is completed
+    if (scan.status !== 'completed') {
+      return res.status(400).json({
+        error: 'Scan not completed',
+        message: `Scan is currently ${scan.status}. Only completed scans can be loaded.`,
+        status: scan.status
+      });
+    }
+
+    // Build response object similar to combined-analysis response
+    const response = {
+      success: true,
+      isHistorical: true,
+      analysisId: scan.analysisId,
+      target: scan.target,
+      status: scan.status,
+      createdAt: scan.createdAt,
+      updatedAt: scan.updatedAt
+    };
+
+    // Add VirusTotal results
+    if (scan.vtResult) {
+      response.vtData = scan.vtResult;
+    }
+
+    // Add PageSpeed results
+    if (scan.pagespeedResult) {
+      response.psiData = scan.pagespeedResult;
+    }
+
+    // Add Observatory results
+    if (scan.observatoryResult) {
+      response.obsData = scan.observatoryResult;
+    }
+
+    // Add urlscan results
+    if (scan.urlscanResult) {
+      response.urlscanData = scan.urlscanResult;
+    }
+
+    // Add ZAP results with GridFS data if available
+    if (scan.zapResult) {
+      response.zapData = { ...scan.zapResult };
+
+      // Fetch detailed alerts from GridFS if available
+      if (scan.zapResult.reportFiles && Array.isArray(scan.zapResult.reportFiles)) {
+        const detailedAlertsFile = scan.zapResult.reportFiles.find(
+          f => f.filename && f.filename.includes('detailed_alerts')
+        );
+        if (detailedAlertsFile && detailedAlertsFile.fileId) {
+          try {
+            const buffer = await gridfsService.downloadFile(detailedAlertsFile.fileId, 'zap_reports');
+            response.zapData.detailedAlerts = JSON.parse(buffer.toString('utf-8'));
+          } catch (gridfsErr) {
+            console.warn(`[LoadScan] Could not fetch ZAP detailed alerts: ${gridfsErr.message}`);
+          }
+        }
+      }
+    }
+
+    // Add WebCheck results with GridFS data if available
+    if (scan.webCheckResult) {
+      response.webCheckData = { ...scan.webCheckResult };
+
+      // Fetch full results from GridFS if available
+      if (!scan.webCheckResult.fullResults && scan.webCheckResult.resultsFileId) {
+        try {
+          const fullResults = await getFullResults(scan.webCheckResult);
+          if (fullResults) {
+            response.webCheckData.fullResults = fullResults;
+          }
+        } catch (gridfsErr) {
+          console.warn(`[LoadScan] Could not fetch WebCheck results: ${gridfsErr.message}`);
+        }
+      }
+    }
+
+    // Add AI report
+    if (scan.refinedReport) {
+      response.aiReport = scan.refinedReport;
+    }
+
+    console.log(`📜 Loaded historical scan: ${analysisId} for user ${req.user.id}`);
+    res.json(response);
+
+  } catch (err) {
+    console.error('❌ Load scan error:', err.message);
+    res.status(500).json({
+      error: 'Failed to load scan',
       details: err.message
     });
   }
@@ -1325,7 +1459,6 @@ router.post('/stop-scan/:id', auth, async (req, res) => {
 router.get('/download-pdf/:id', auth, async (req, res) => {
   try {
     const { id } = req.params;
-    const forceRegenerate = req.query.regenerate === 'true';
     const lang = req.query.lang || 'en';
 
     // Validate language parameter
@@ -1359,47 +1492,23 @@ router.get('/download-pdf/:id', auth, async (req, res) => {
       });
     }
 
-    let pdfBuffer;
-
-    // Determine cache field based on language
-    const cacheField = lang === 'en' ? 'pdfReportEn' : 'pdfReportJa';
-    const cacheTimeField = lang === 'en' ? 'pdfGeneratedAtEn' : 'pdfGeneratedAtJa';
-
-    // Check if we have a cached PDF for this language
-    if (scan[cacheField] && !forceRegenerate) {
-      console.log(`📄 Using cached ${lang.toUpperCase()} PDF from database`);
-      pdfBuffer = scan[cacheField];
-    } else {
-      // Ensure WebCheck fullResults is populated (might be in GridFS)
-      if (scan.webCheckResult && !scan.webCheckResult.fullResults && scan.webCheckResult.resultsFileId) {
-        console.log('📄 Fetching WebCheck results from GridFS for PDF...');
-        try {
-          const webCheckFullResults = await getFullResults(scan.webCheckResult);
-          if (webCheckFullResults) {
-            scan.webCheckResult.fullResults = webCheckFullResults;
-            console.log(`📄 WebCheck results fetched: ${Object.keys(webCheckFullResults).length} scan types`);
-          }
-        } catch (e) {
-          console.warn('⚠️ Failed to fetch WebCheck results for PDF:', e.message);
+    // Ensure WebCheck fullResults is populated (might be in GridFS)
+    if (scan.webCheckResult && !scan.webCheckResult.fullResults && scan.webCheckResult.resultsFileId) {
+      console.log('📄 Fetching WebCheck results from GridFS for PDF...');
+      try {
+        const webCheckFullResults = await getFullResults(scan.webCheckResult);
+        if (webCheckFullResults) {
+          scan.webCheckResult.fullResults = webCheckFullResults;
+          console.log(`📄 WebCheck results fetched: ${Object.keys(webCheckFullResults).length} scan types`);
         }
+      } catch (e) {
+        console.warn('⚠️ Failed to fetch WebCheck results for PDF:', e.message);
       }
-
-      // Generate new single-language PDF
-      console.log(`📄 Generating new ${lang.toUpperCase()} PDF report...`);
-      pdfBuffer = await generateSingleLanguagePdf(scan, lang);
-
-      // Store PDF in database for caching (language-specific field)
-      await ScanResult.updateOne(
-        { analysisId: id },
-        {
-          $set: {
-            [cacheField]: pdfBuffer,
-            [cacheTimeField]: new Date()
-          }
-        }
-      );
-      console.log(`📄 ${lang.toUpperCase()} PDF generated and cached in database`);
     }
+
+    // Always generate fresh PDF (no caching - data retention policy)
+    console.log(`📄 Generating ${lang.toUpperCase()} PDF report...`);
+    const pdfBuffer = await generateSingleLanguagePdf(scan, lang);
 
     // Set headers for PDF download (include language in filename)
     const langSuffix = lang.toUpperCase();

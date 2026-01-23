@@ -49,32 +49,6 @@ const scanResultSchema = new mongoose.Schema({
     type: String,
     default: null
   },
-  // Generated PDF report (legacy combined - deprecated)
-  pdfReport: {
-    type: Buffer,
-    default: null
-  },
-  pdfGeneratedAt: {
-    type: Date,
-    default: null
-  },
-  // Separate language PDF caches
-  pdfReportEn: {
-    type: Buffer,
-    default: null
-  },
-  pdfGeneratedAtEn: {
-    type: Date,
-    default: null
-  },
-  pdfReportJa: {
-    type: Buffer,
-    default: null
-  },
-  pdfGeneratedAtJa: {
-    type: Date,
-    default: null
-  },
   status: {
     type: String,
     enum: ['queued', 'pending', 'combining', 'completed', 'failed', 'stopped'],
@@ -89,7 +63,7 @@ const scanResultSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
-    index: true
+    index: { expires: 604800 } // TTL: 7 days (604800 seconds)
   },
   updatedAt: {
     type: Date,
