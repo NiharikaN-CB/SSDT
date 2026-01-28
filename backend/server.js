@@ -8,6 +8,7 @@ const { startCleanupJob } = require('./jobs/cleanupJob'); // Scheduled cleanup
 
 // 👇 IMPORT ZAP ROUTES
 const zapRoutes = require('./routes/zapRoutes');
+const zapAuthRoutes = require('./routes/zapAuthRoutes');
 const webCheckRoutes = require('./routes/webCheckRoutes');
 
 // Validate required environment variables
@@ -27,8 +28,9 @@ connectDB().then(() => {
   // Initialize GridFS after MongoDB connection is established
   try {
     gridfsService.initialize('zap_reports');
+    gridfsService.initialize('zap_auth_reports');
     gridfsService.initialize('webcheck_results');
-    console.log('✅ GridFS initialized (buckets: zap_reports, webcheck_results)');
+    console.log('✅ GridFS initialized (buckets: zap_reports, zap_auth_reports, webcheck_results)');
   } catch (error) {
     console.error('⚠️  GridFS initialization failed:', error.message);
     console.error('   Large file storage may not work properly');
@@ -70,6 +72,9 @@ app.use('/api/profile', apiLimiter, require('./routes/profile'));
 
 // 👇 REGISTER ZAP ROUTE
 app.use('/api/zap', apiLimiter, scanLimiter, zapRoutes);
+
+// 👇 REGISTER ZAP AUTH ROUTES (Authenticated scanning on port 8081)
+app.use('/api/zap-auth', apiLimiter, scanLimiter, zapAuthRoutes);
 
 // 👇 REGISTER WEBCHECK ROUTES
 app.use('/api/webcheck', apiLimiter, scanLimiter, webCheckRoutes);

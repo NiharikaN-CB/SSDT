@@ -48,6 +48,50 @@ services:
       retries: 5
       start_period: 60s
 
+  # OWASP ZAP Authenticated Scanner - Separate instance for authenticated scans
+  # Uses same image but on port 8081, dedicated to authenticated scanning
+  zap-auth:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: zap-auth-scanner
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    mem_limit: 8g
+    cpus: 6
+    command:
+      - "zap.sh"
+      - "-daemon"
+      - "-host"
+      - "0.0.0.0"
+      - "-port"
+      - "8080"
+      - "-config"
+      - "api.addrs.addr.name=.*"
+      - "-config"
+      - "api.addrs.addr.regex=true"
+      - "-config"
+      - "api.disablekey=true"
+      - "-config"
+      - "database.responseBodyMaxSize=52428800"
+      - "-config"
+      - "spider.maxDepth=20"
+      - "-config"
+      - "spider.maxDuration=120"
+      - "-config"
+      - "spider.threadCount=10"
+      - "-config"
+      - "scanner.threadPerHost=10"
+      - "-config"
+      - "scanner.hostPerScan=10"
+    networks:
+      - app-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/JSON/core/view/version/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
   # WebCheck Scanner - Web security analysis tools
   webcheck:
     build: ./new

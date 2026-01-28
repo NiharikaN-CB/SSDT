@@ -7,7 +7,7 @@ import '../styles/ZapReportEnhanced.scss';
 
 const API_BASE = 'http://localhost:3001';
 
-const ZapReportEnhanced = ({ zapData, scanId }) => {
+const ZapReportEnhanced = ({ zapData, scanId, apiPrefix = '/api/zap' }) => {
     const [expandedAlerts, setExpandedAlerts] = useState(new Set());
     const [downloadingDetailed, setDownloadingDetailed] = useState(false);
     const [pdfDropdownOpen, setPdfDropdownOpen] = useState(false);
@@ -42,7 +42,7 @@ const ZapReportEnhanced = ({ zapData, scanId }) => {
     const downloadDetailedReport = async () => {
         setDownloadingDetailed(true);
         try {
-            const response = await fetch(`${API_BASE}/api/zap/detailed-report/${scanId}`, {
+            const response = await fetch(`${API_BASE}${apiPrefix}/detailed-report/${scanId}`, {
                 headers: {
                     'x-auth-token': localStorage.getItem('token')
                 }
@@ -72,7 +72,7 @@ const ZapReportEnhanced = ({ zapData, scanId }) => {
         setPdfLang(lang);
         setPdfDropdownOpen(false);
         try {
-            const response = await fetch(`${API_BASE}/api/zap/detailed-report-pdf/${scanId}?lang=${lang}`, {
+            const response = await fetch(`${API_BASE}${apiPrefix}/detailed-report-pdf/${scanId}?lang=${lang}`, {
                 headers: {
                     'x-auth-token': localStorage.getItem('token')
                 }

@@ -35,6 +35,11 @@ const scanResultSchema = new mongoose.Schema({
     type: Object,
     default: null
   },
+  // Authenticated ZAP scan result (separate from public ZAP scan)
+  authScanResult: {
+    type: Object,
+    default: null
+  },
   // urlscan.io result
   urlscanResult: {
     type: Object,
