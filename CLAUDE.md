@@ -95,10 +95,55 @@ Both Hero.jsx (normal scan) and AuthenticatedScanPanel.jsx (auth scan) MUST have
 - JSON export
 - Observatory grade summary with VirusTotal engine table
 
-## Current Branch: `new-authscan-implementation`
+## Current Branch: `main`
 Recent work:
 - Extracted shared WebCheckDetails.jsx component from duplicated code in Hero.jsx and AuthenticatedScanPanel.jsx
 - Added stale scan watchdog (24h ZAP, 6h WebCheck) that fails entire scan on timeout
 - Backend GridFS cache to prevent redundant downloads
 - Frontend AbortController to prevent React StrictMode double-fetches
 - Fixed: Quality Metrics raw JSON display, trace route all-asterisk rows, ranking visualization, font consistency
+- Fixed GridFS bucket mismatch for auth scans (pdfService, virustotalRoutes, historical loader)
+- Increased GridFS timeout to 1 hour
+- Removed recharts, replaced with pure CSS ranking visualization
+- Synced AJAX spider behavior (no stuck detection) between normal and auth scan
+
+## Service Plan - Implementation Goals
+
+### Product Name: SSD (Simple Security Diagnosis)
+
+### Subscription Tiers
+
+| Feature | Light | Basic | Pro |
+|---------|-------|-------|-----|
+| **Monthly Price** | ¥30,000 | ¥50,000 | ¥100,000 |
+| **Annual Price** | ¥300,000 | ¥500,000 | ¥1,000,000 |
+| **Accounts** | 1 | 3 | 5 |
+| **Scans per target/month** | 1 | 3 | 10 |
+| **Max targets/month** | 3 | 5 | 10 |
+| **Severity levels shown** | Critical, High only | All (Critical→Informational) | All (Critical→Informational) |
+
+### One-Time Trial Plans
+- **Trial 1**: ¥20,000 - 1 account, 1 scan, 1 target, Critical+High only
+- **Trial 2**: ¥30,000 - 1 account, 2 scans, 1 target, all severity levels
+
+### Environment Scale Targets
+- Light plan: support 10 companies
+- Basic plan: support 20 companies
+- Pro plan: support 5 companies
+- Scale adjusted based on contract status
+
+### Features NOT YET Implemented (Goals)
+- [ ] **TASK 1**: VirusTotal API removal (clean codebase, remove from all 15+ files)
+- [ ] **TASK 2**: Multi-tenant account system (Company model, multiple accounts per company)
+- [ ] **TASK 3**: Severity-level gating (Light plan: only show Critical + High vulnerabilities)
+- [ ] **TASK 4**: Plan-based scan limits (scans per target per month, max targets per month)
+- [ ] **TASK 5**: Trial plan one-time scan mode
+- [ ] **TASK 6**: Usage tracking dashboard
+- [ ] **TASK 7**: Admin panel for managing company accounts and plans
+
+**Full implementation details for each task: see `IMPLEMENTATION_PLAN.md`**
+
+### Existing Infrastructure (useful for plan features)
+- User model already has `accountType` ('free'/'pro'), `proExpiresAt`, `isPro()`, `getAccountLimits()`
+- Prototype upgrade/downgrade endpoints exist in `backend/routes/profile.js`
+- `virustotalRoutes.js` is the main scan orchestration file (NOT just VT) - handles ALL scan workflows
