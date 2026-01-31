@@ -578,8 +578,17 @@ const getActiveScanStatus = (analysisId) => {
 };
 
 /**
+ * Short-lived in-memory cache for GridFS results.
+ * Prevents redundant downloads when the same scan is requested multiple times
+ * in quick succession (e.g., React StrictMode double-invoke, page refresh).
+ * Cache entries expire after 60 seconds.
+ */
+const _gridfsCache = new Map();
+const GRIDFS_CACHE_TTL_MS = 60 * 1000;
+
+/**
  * Retrieve full WebCheck results
- * Checks inline fullResults first, then GridFS if needed
+ * Checks inline fullResults first, then in-memory cache, then GridFS if needed
  * @param {object} webCheckResult - The webCheckResult object from ScanResult
  * @returns {Promise<object|null>} Full results or null if not found
  */
@@ -600,12 +609,33 @@ const getFullResults = async (webCheckResult) => {
 
     // Fall back to GridFS for large results
     if (webCheckResult.resultsFileId) {
-        console.log(`[WebCheck] getFullResults: Fetching from GridFS, fileId=${webCheckResult.resultsFileId}`);
+        const fileId = webCheckResult.resultsFileId.toString();
+
+        // Check in-memory cache first
+        const cached = _gridfsCache.get(fileId);
+        if (cached && (Date.now() - cached.timestamp < GRIDFS_CACHE_TTL_MS)) {
+            console.log(`[WebCheck] getFullResults: Cache HIT for fileId=${fileId} (${Object.keys(cached.data).length} scan types)`);
+            return cached.data;
+        }
+
+        console.log(`[WebCheck] getFullResults: Fetching from GridFS, fileId=${fileId}`);
         try {
             const buffer = await gridfsService.downloadFile(webCheckResult.resultsFileId, WEBCHECK_BUCKET);
             const results = JSON.parse(buffer.toString('utf-8'));
             const keys = Object.keys(results);
             console.log(`[WebCheck] getFullResults: Retrieved ${keys.length} scan types from GridFS`);
+
+            // Cache the result
+            _gridfsCache.set(fileId, { data: results, timestamp: Date.now() });
+
+            // Clean up expired entries periodically
+            if (_gridfsCache.size > 10) {
+                const now = Date.now();
+                for (const [key, val] of _gridfsCache) {
+                    if (now - val.timestamp > GRIDFS_CACHE_TTL_MS) _gridfsCache.delete(key);
+                }
+            }
+
             return results;
         } catch (error) {
             console.error('[WebCheck] Failed to retrieve results from GridFS:', error.message);

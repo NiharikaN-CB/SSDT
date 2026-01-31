@@ -20,6 +20,14 @@ const {
 const ScanResult = require('../models/ScanResult');
 const gridfsService = require('../services/gridfsService');
 
+// Additional scanner services (same as normal scan)
+const { scanUrl, getAnalysis } = require('../services/virustotalService');
+const { getPageSpeedReport } = require('../services/pagespeedService');
+const { scanHost } = require('../services/observatoryService');
+const { runUrlScan } = require('../services/urlscanService');
+const { startAsyncWebCheckScan, getFullResults } = require('../services/webCheckService');
+const { refineReport } = require('../services/geminiService');
+
 // ============================================================================
 // IN-MEMORY AUTH SESSION STORE
 // Stores session cookies from successful login tests, keyed by tempSessionId.
@@ -217,7 +225,7 @@ router.post('/scan', auth, async (req, res) => {
 
     console.log(`[ZAP-AUTH] Starting authenticated scan: ${scanId} for ${targetUrl}`);
 
-    // Start async scan
+    // Start async auth ZAP scan
     const result = await startAsyncAuthScan(
       targetUrl,
       resolvedLoginUrl,
@@ -228,6 +236,26 @@ router.post('/scan', auth, async (req, res) => {
 
     // Delete the session after use (one-time use)
     authSessions.delete(tempSessionId);
+
+    // Also start VirusTotal scan in the background (fire & forget)
+    // VT analysis ID is stored in the scan document for later polling
+    try {
+      const vtResp = await scanUrl(targetUrl);
+      let vtAnalysisId = vtResp?.data?.id || vtResp?.id || vtResp?.data?.attributes?.id || null;
+      if (vtAnalysisId) {
+        await ScanResult.updateOne(
+          { analysisId: scanId },
+          { $set: { vtResult: { vtAnalysisId, status: 'pending' } } }
+        );
+        console.log(`[ZAP-AUTH] VirusTotal scan submitted: ${vtAnalysisId}`);
+      }
+    } catch (vtError) {
+      console.warn(`[ZAP-AUTH] VirusTotal submission failed (non-blocking): ${vtError.message}`);
+      await ScanResult.updateOne(
+        { analysisId: scanId },
+        { $set: { vtResult: { error: vtError.message } } }
+      );
+    }
 
     res.json({
       success: true,
@@ -243,16 +271,401 @@ router.post('/scan', auth, async (req, res) => {
 /**
  * GET /api/zap-auth/status/:scanId
  * Get the status and progress of an authenticated scan.
+ * Orchestrates ALL scanners (VT, PageSpeed, Observatory, URLScan, WebCheck, Gemini)
+ * alongside the authenticated ZAP scan, matching the normal combined-analysis flow.
  */
 router.get('/status/:scanId', auth, async (req, res) => {
   try {
     const { scanId } = req.params;
-    const status = await getAuthScanStatus(scanId, req.user.id);
-    res.json(status);
-  } catch (error) {
-    if (error.message === 'Scan not found or access denied') {
-      return res.status(404).json({ error: error.message });
+
+    let scan = await ScanResult.findOne({ analysisId: scanId, userId: req.user.id });
+    if (!scan) {
+      return res.status(404).json({ error: 'Scan not found or access denied' });
     }
+
+    // ── STEP A: Check VirusTotal status ──
+    if (scan.vtResult && scan.vtResult.vtAnalysisId && !scan.vtResult.data) {
+      try {
+        const vtResp = await getAnalysis(scan.vtResult.vtAnalysisId);
+        const vtStatus = vtResp?.data?.attributes?.status;
+        if (vtStatus === 'completed') {
+          scan.vtResult = vtResp;
+          await ScanResult.updateOne({ analysisId: scanId }, { $set: { vtResult: vtResp } });
+          console.log('[ZAP-AUTH] VirusTotal analysis completed');
+        }
+      } catch (vtErr) {
+        console.warn('[ZAP-AUTH] VT poll error (non-blocking):', vtErr.message);
+      }
+    }
+
+    // ── STEP B: When VT is done, trigger fast scans (only once) ──
+    const vtDone = scan.vtResult && (scan.vtResult.data || scan.vtResult.error);
+    const needsFastScans = vtDone && (!scan.pagespeedResult || !scan.observatoryResult || !scan.urlscanResult);
+    const webCheckNotStarted = !scan.webCheckResult || (!scan.webCheckResult.status && !scan.webCheckResult.error);
+
+    if (needsFastScans || webCheckNotStarted) {
+      try {
+        const hostname = new URL(scan.target).hostname;
+        const scanPromises = [];
+
+        // PageSpeed
+        if (!scan.pagespeedResult) {
+          scanPromises.push(getPageSpeedReport(scan.target).catch(e => ({ error: e.message })));
+        } else {
+          scanPromises.push(Promise.resolve(null));
+        }
+
+        // Observatory
+        if (!scan.observatoryResult) {
+          scanPromises.push(scanHost(hostname).catch(e => ({ error: e.message })));
+        } else {
+          scanPromises.push(Promise.resolve(null));
+        }
+
+        // URLScan
+        if (!scan.urlscanResult) {
+          scanPromises.push(runUrlScan(scan.target).catch(e => ({ error: e.message })));
+        } else {
+          scanPromises.push(Promise.resolve(null));
+        }
+
+        // WebCheck (async background scan)
+        if (webCheckNotStarted) {
+          scanPromises.push(startAsyncWebCheckScan(scan.target, scan.analysisId, req.user.id).catch(e => ({ status: 'failed', error: e.message })));
+        } else {
+          scanPromises.push(Promise.resolve(null));
+        }
+
+        const [psiResult, obsResult, urlscanResult, webCheckInitResult] = await Promise.all(scanPromises);
+
+        const updateFields = {};
+
+        if (psiResult && !scan.pagespeedResult) {
+          updateFields.pagespeedResult = psiResult;
+          scan.pagespeedResult = psiResult;
+          console.log('[ZAP-AUTH] PageSpeed completed');
+        }
+        if (obsResult && !scan.observatoryResult) {
+          updateFields.observatoryResult = obsResult;
+          scan.observatoryResult = obsResult;
+          console.log('[ZAP-AUTH] Observatory completed');
+        }
+        if (urlscanResult && !scan.urlscanResult) {
+          updateFields.urlscanResult = urlscanResult;
+          scan.urlscanResult = urlscanResult;
+          console.log('[ZAP-AUTH] URLScan completed');
+        }
+        if (webCheckInitResult && webCheckNotStarted) {
+          updateFields.webCheckResult = webCheckInitResult;
+          scan.webCheckResult = webCheckInitResult;
+          console.log('[ZAP-AUTH] WebCheck started in background');
+        }
+
+        if (Object.keys(updateFields).length > 0) {
+          await ScanResult.updateOne({ analysisId: scanId }, { $set: updateFields });
+        }
+      } catch (fastScanError) {
+        console.error('[ZAP-AUTH] Fast scan orchestration error:', fastScanError.message);
+      }
+    }
+
+    // ── Re-fetch scan to get latest auth ZAP + WebCheck progress ──
+    scan = await ScanResult.findOne({ analysisId: scanId, userId: req.user.id });
+
+    // ── Stale scan watchdog: mark stuck background scans as failed ──
+    const AUTH_ZAP_STALE_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
+    const WEBCHECK_STALE_TIMEOUT_MS = 6 * 60 * 60 * 1000; // 6 hours
+    const now = Date.now();
+
+    if (scan.authScanResult?.startedAt && !['completed', 'failed'].includes(scan.authScanResult.status)) {
+      const authZapAge = now - new Date(scan.authScanResult.startedAt).getTime();
+      if (authZapAge > AUTH_ZAP_STALE_TIMEOUT_MS) {
+        console.error(`[ZAP-AUTH] ❌ Auth ZAP scan timed out (${Math.round(authZapAge / 60000)}min). Failing entire scan.`);
+        await ScanResult.updateOne(
+          { analysisId: scanId },
+          { $set: { 'authScanResult.status': 'failed', 'authScanResult.error': 'Scan timed out (exceeded 24 hour limit)', status: 'failed', updatedAt: new Date() } }
+        );
+        scan.authScanResult.status = 'failed';
+        scan.status = 'failed';
+      }
+    }
+
+    if (scan.webCheckResult?.startedAt && !['completed', 'completed_partial', 'completed_with_errors', 'failed'].includes(scan.webCheckResult.status)) {
+      const wcAge = now - new Date(scan.webCheckResult.startedAt).getTime();
+      if (wcAge > WEBCHECK_STALE_TIMEOUT_MS) {
+        console.error(`[ZAP-AUTH] ❌ WebCheck scan timed out (${Math.round(wcAge / 60000)}min). Failing entire scan.`);
+        await ScanResult.updateOne(
+          { analysisId: scanId },
+          { $set: { 'webCheckResult.status': 'failed', 'webCheckResult.error': 'Scan timed out (exceeded 6 hour limit)', status: 'failed', updatedAt: new Date() } }
+        );
+        scan.webCheckResult.status = 'failed';
+        scan.status = 'failed';
+      }
+    }
+
+    // If entire scan was failed by watchdog, return immediately
+    if (scan.status === 'failed') {
+      return res.json({ status: 'failed', error: 'Background scan timed out. Please try again.', target: scan.target, analysisId: scanId });
+    }
+
+    // ── STEP C: Check if auth ZAP + WebCheck are done → generate Gemini report ──
+    const authZapStatus = scan.authScanResult?.status;
+    const authZapDone = authZapStatus === 'completed' || authZapStatus === 'failed';
+
+    const webCheckStatus = scan.webCheckResult?.status;
+    const webCheckDone = webCheckStatus === 'completed' || webCheckStatus === 'completed_partial' ||
+      webCheckStatus === 'completed_with_errors' || webCheckStatus === 'failed';
+
+    // If either auth ZAP or WebCheck failed entirely, fail the whole scan
+    if ((authZapStatus === 'failed' || webCheckStatus === 'failed') && !scan.refinedReport) {
+      const failedParts = [];
+      if (authZapStatus === 'failed') failedParts.push(`Auth ZAP: ${scan.authScanResult?.error || 'unknown error'}`);
+      if (webCheckStatus === 'failed') failedParts.push(`WebCheck: ${scan.webCheckResult?.error || 'unknown error'}`);
+      console.error(`[ZAP-AUTH] ❌ Background scan(s) failed: ${failedParts.join(', ')}. Failing entire scan.`);
+      await ScanResult.updateOne(
+        { analysisId: scanId },
+        { $set: { status: 'failed', updatedAt: new Date() } }
+      );
+      scan.status = 'failed';
+      return res.json({ status: 'failed', error: `Scan failed: ${failedParts.join('; ')}`, target: scan.target, analysisId: scanId });
+    }
+
+    // Copy authScanResult to zapResult so existing download/history endpoints work
+    if (authZapDone && !scan.zapResult) {
+      const zapResultCopy = scan.authScanResult ? { ...scan.authScanResult } : null;
+      if (zapResultCopy) {
+        await ScanResult.updateOne({ analysisId: scanId }, { $set: { zapResult: zapResultCopy } });
+        scan.zapResult = zapResultCopy;
+        console.log('[ZAP-AUTH] Copied authScanResult to zapResult for compatibility');
+      }
+    }
+
+    if (authZapDone && webCheckDone && !scan.refinedReport && scan.pagespeedResult && scan.observatoryResult) {
+      console.log('[ZAP-AUTH] All scans finished. Generating Gemini AI report...');
+      try {
+        const freshScan = await ScanResult.findOne({ analysisId: scanId, userId: req.user.id });
+        const psiReport = freshScan.pagespeedResult?.error ? null : freshScan.pagespeedResult;
+        const observatoryReport = freshScan.observatoryResult?.error ? null : freshScan.observatoryResult;
+        const urlscanReport = freshScan.urlscanResult?.error ? null : freshScan.urlscanResult;
+
+        // Use auth ZAP data for the report
+        const authZapCompleted = freshScan.authScanResult?.status === 'completed';
+        const zapReport = authZapCompleted ? {
+          site: freshScan.target,
+          riskCounts: freshScan.authScanResult.riskCounts,
+          alerts: freshScan.authScanResult.alerts,
+          totalAlerts: freshScan.authScanResult.totalAlerts,
+          totalOccurrences: freshScan.authScanResult.totalOccurrences
+        } : null;
+
+        // WebCheck data
+        let webCheckReport = null;
+        const freshWebCheck = freshScan.webCheckResult;
+        const wcCompleted = freshWebCheck?.status === 'completed' || freshWebCheck?.status === 'completed_partial' || freshWebCheck?.status === 'completed_with_errors';
+        if (wcCompleted) {
+          webCheckReport = await getFullResults(freshWebCheck);
+        }
+
+        const aiReport = await refineReport(
+          freshScan.vtResult,
+          psiReport,
+          observatoryReport,
+          freshScan.target,
+          zapReport,
+          urlscanReport,
+          webCheckReport
+        );
+
+        await ScanResult.updateOne(
+          { analysisId: scanId },
+          { $set: { refinedReport: aiReport, status: 'completed', updatedAt: new Date() } }
+        );
+        scan.refinedReport = aiReport;
+        scan.status = 'completed';
+        console.log('[ZAP-AUTH] Gemini AI report generated!');
+      } catch (geminiError) {
+        console.error('[ZAP-AUTH] Gemini report failed:', geminiError.message);
+        const fallback = `AI analysis temporarily unavailable. Error: ${geminiError.message}`;
+        await ScanResult.updateOne(
+          { analysisId: scanId },
+          { $set: { refinedReport: fallback, status: 'completed', updatedAt: new Date() } }
+        );
+        scan.refinedReport = fallback;
+        scan.status = 'completed';
+      }
+    } else if (authZapDone && (webCheckDone || !scan.webCheckResult) && !scan.refinedReport) {
+      // WebCheck may not have started or both done but missing fast scans
+      if (!scan.pagespeedResult || !scan.observatoryResult) {
+        const fallback = 'AI analysis could not be generated - some scan data was unavailable. Please view individual scan results below.';
+        await ScanResult.updateOne(
+          { analysisId: scanId },
+          { $set: { refinedReport: fallback, status: 'completed', updatedAt: new Date() } }
+        );
+        scan.refinedReport = fallback;
+        scan.status = 'completed';
+      }
+    }
+
+    // ── STEP D: Build response with all scan data (progressive loading) ──
+    const vtStats = scan.vtResult?.data?.attributes?.stats || null;
+    const lighthouseResult = scan.pagespeedResult?.lighthouseResult || {};
+    const categories = lighthouseResult.categories || {};
+
+    const psiScores = scan.pagespeedResult && !scan.pagespeedResult.error ? {
+      performance: categories.performance?.score ? Math.round(categories.performance.score * 100) : null,
+      accessibility: categories.accessibility?.score ? Math.round(categories.accessibility.score * 100) : null,
+      bestPractices: categories['best-practices']?.score ? Math.round(categories['best-practices'].score * 100) : null,
+      seo: categories.seo?.score ? Math.round(categories.seo.score * 100) : null
+    } : null;
+
+    const observatoryData = scan.observatoryResult && !scan.observatoryResult.error ? {
+      grade: scan.observatoryResult.grade,
+      score: scan.observatoryResult.score,
+      tests_passed: scan.observatoryResult.tests_passed,
+      tests_failed: scan.observatoryResult.tests_failed,
+      tests_quantity: scan.observatoryResult.tests_quantity
+    } : null;
+
+    // Auth ZAP data (mapped to same format as normal zapData)
+    let zapData = null;
+    if (scan.authScanResult) {
+      const s = scan.authScanResult.status;
+      if (s === 'completed') {
+        zapData = {
+          status: 'completed',
+          riskCounts: scan.authScanResult.riskCounts || { High: 0, Medium: 0, Low: 0, Informational: 0 },
+          alerts: scan.authScanResult.alerts || [],
+          totalAlerts: scan.authScanResult.totalAlerts || 0,
+          totalOccurrences: scan.authScanResult.totalOccurrences || 0,
+          reportFiles: scan.authScanResult.reportFiles || [],
+          site: scan.target
+        };
+      } else if (s === 'running' || s === 'pending') {
+        zapData = {
+          status: s,
+          phase: scan.authScanResult.phase || 'queued',
+          progress: scan.authScanResult.progress || 0,
+          message: scan.authScanResult.message || 'Authenticated ZAP scan in progress...',
+          urlsFound: scan.authScanResult.urlsFound || 0,
+          alertsFound: scan.authScanResult.alertsFound || 0
+        };
+      } else if (s === 'failed') {
+        zapData = {
+          status: 'failed',
+          error: scan.authScanResult.error || 'Authenticated ZAP scan failed'
+        };
+      }
+    }
+
+    const urlscanData = scan.urlscanResult && !scan.urlscanResult.error ? {
+      uuid: scan.urlscanResult.uuid,
+      verdicts: scan.urlscanResult.verdicts,
+      page: scan.urlscanResult.page,
+      stats: scan.urlscanResult.stats,
+      screenshot: scan.urlscanResult.screenshot,
+      reportUrl: scan.urlscanResult.reportUrl
+    } : null;
+
+    // WebCheck data
+    let webCheckData = null;
+    if (scan.webCheckResult) {
+      const wcs = scan.webCheckResult.status;
+      if (wcs === 'completed' || wcs === 'completed_with_errors' || wcs === 'completed_partial') {
+        let webCheckResults = scan.webCheckResult.fullResults;
+        if (!webCheckResults && scan.webCheckResult.resultsFileId) {
+          try { webCheckResults = await getFullResults(scan.webCheckResult); } catch (e) { /* ignore */ }
+        }
+        if (!webCheckResults) webCheckResults = scan.webCheckResult.summary || {};
+        webCheckData = {
+          status: wcs,
+          results: webCheckResults,
+          summary: scan.webCheckResult.summary || {},
+          completedScans: scan.webCheckResult.completedScans || 0,
+          totalScans: scan.webCheckResult.totalScans || 30,
+          hasErrors: scan.webCheckResult.hasErrors || false,
+          duration: scan.webCheckResult.duration || 0
+        };
+      } else if (wcs === 'uploading') {
+        webCheckData = {
+          status: 'uploading',
+          progress: 100,
+          uploadProgress: scan.webCheckResult.uploadProgress || 0,
+          completedScans: scan.webCheckResult.completedScans || scan.webCheckResult.totalScans,
+          totalScans: scan.webCheckResult.totalScans || 30,
+          message: scan.webCheckResult.message || 'Uploading results...'
+        };
+      } else if (wcs === 'running' || wcs === 'pending') {
+        webCheckData = {
+          status: 'running',
+          progress: scan.webCheckResult.progress || 0,
+          completedScans: scan.webCheckResult.completedScans || 0,
+          totalScans: scan.webCheckResult.totalScans || 30,
+          message: scan.webCheckResult.message || 'WebCheck scans in progress...',
+          partialResults: scan.webCheckResult.partialResults || {}
+        };
+      } else if (wcs === 'failed') {
+        webCheckData = {
+          status: 'failed',
+          error: scan.webCheckResult.error || 'WebCheck scan failed'
+        };
+      }
+    }
+
+    // Determine overall status
+    const overallStatus = scan.refinedReport ? 'completed'
+      : (authZapDone ? 'combining' : 'running');
+
+    // Auth ZAP phase/progress for the scanning UI
+    const phase = scan.authScanResult?.phase || '';
+    const progress = scan.authScanResult?.progress || 0;
+
+    return res.json({
+      success: true,
+      scanId: scan.analysisId,
+      target: scan.target,
+      status: overallStatus,
+      // Auth ZAP progress (for step 4 scanning UI)
+      phase,
+      progress,
+      message: scan.authScanResult?.message || '',
+      // Partial data indicators (same as combined-analysis)
+      hasVtResult: !!scan.vtResult?.data,
+      hasPsiResult: !!scan.pagespeedResult && !scan.pagespeedResult.error,
+      hasObservatoryResult: !!scan.observatoryResult && !scan.observatoryResult.error,
+      hasZapResult: zapData?.status === 'completed',
+      zapPending: zapData?.status === 'running' || zapData?.status === 'pending',
+      hasUrlscanResult: !!scan.urlscanResult && !scan.urlscanResult.error,
+      hasWebCheckResult: webCheckData?.status === 'completed' || webCheckData?.status === 'completed_partial' || webCheckData?.status === 'completed_with_errors',
+      webCheckPending: webCheckData?.status === 'running',
+      hasRefinedReport: !!scan.refinedReport,
+      // Actual data
+      vtStats,
+      psiScores,
+      observatoryData,
+      zapData,
+      urlscanData,
+      webCheckData,
+      refinedReport: scan.refinedReport || null,
+      // Raw results for compatibility
+      vtResult: scan.vtResult || null,
+      pagespeedResult: scan.pagespeedResult || null,
+      observatoryResult: scan.observatoryResult || null,
+      authScanResult: scan.authScanResult || null,
+      urlscanResult: scan.urlscanResult || null,
+      webCheckResult: scan.webCheckResult || null,
+      // For ZapReportEnhanced and results
+      analysisId: scan.analysisId,
+      summary: zapData?.status === 'completed' ? {
+        totalAlerts: zapData.totalAlerts,
+        high: zapData.riskCounts?.High || 0,
+        medium: zapData.riskCounts?.Medium || 0,
+        low: zapData.riskCounts?.Low || 0,
+        informational: zapData.riskCounts?.Informational || 0
+      } : null,
+      createdAt: scan.createdAt,
+      updatedAt: scan.updatedAt
+    });
+  } catch (error) {
     console.error('[ZAP-AUTH] Status error:', error.message);
     res.status(500).json({ error: 'Failed to get scan status' });
   }

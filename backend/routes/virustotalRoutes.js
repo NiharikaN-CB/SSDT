@@ -352,7 +352,10 @@ router.get('/scan/:analysisId', auth, async (req, res) => {
         );
         if (detailedAlertsFile && detailedAlertsFile.fileId) {
           try {
-            const buffer = await gridfsService.downloadFile(detailedAlertsFile.fileId, 'zap_reports');
+            // Auth scan files are stored in zap_auth_reports bucket, normal in zap_reports
+            const bucket = (detailedAlertsFile.filename && detailedAlertsFile.filename.includes('zap_auth'))
+              ? 'zap_auth_reports' : 'zap_reports';
+            const buffer = await gridfsService.downloadFile(detailedAlertsFile.fileId, bucket);
             response.zapData.detailedAlerts = JSON.parse(buffer.toString('utf-8'));
           } catch (gridfsErr) {
             console.warn(`[LoadScan] Could not fetch ZAP detailed alerts: ${gridfsErr.message}`);
@@ -941,6 +944,43 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
 
     // STEP C: Check if ZAP and WebCheck are complete and generate Gemini report
     // This runs on EVERY poll request until Gemini report is generated
+
+    // Stale scan watchdog: if a background scan has been "running" too long, mark it as failed
+    const ZAP_STALE_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
+    const WEBCHECK_STALE_TIMEOUT_MS = 6 * 60 * 60 * 1000; // 6 hours
+    const now = Date.now();
+
+    if (scan.zapResult?.startedAt && !['completed', 'completed_partial', 'failed'].includes(scan.zapResult.status)) {
+      const zapAge = now - new Date(scan.zapResult.startedAt).getTime();
+      if (zapAge > ZAP_STALE_TIMEOUT_MS) {
+        console.error(`❌ ZAP scan timed out (running for ${Math.round(zapAge / 60000)}min). Failing entire scan.`);
+        await ScanResult.updateOne(
+          { analysisId: id },
+          { $set: { 'zapResult.status': 'failed', 'zapResult.error': 'Scan timed out (exceeded 24 hour limit)', 'zapResult.phase': 'failed', status: 'failed', updatedAt: new Date() } }
+        );
+        scan.zapResult.status = 'failed';
+        scan.status = 'failed';
+      }
+    }
+
+    if (scan.webCheckResult?.startedAt && !['completed', 'completed_partial', 'completed_with_errors', 'failed'].includes(scan.webCheckResult.status)) {
+      const wcAge = now - new Date(scan.webCheckResult.startedAt).getTime();
+      if (wcAge > WEBCHECK_STALE_TIMEOUT_MS) {
+        console.error(`❌ WebCheck scan timed out (running for ${Math.round(wcAge / 60000)}min). Failing entire scan.`);
+        await ScanResult.updateOne(
+          { analysisId: id },
+          { $set: { 'webCheckResult.status': 'failed', 'webCheckResult.error': 'Scan timed out (exceeded 6 hour limit)', status: 'failed', updatedAt: new Date() } }
+        );
+        scan.webCheckResult.status = 'failed';
+        scan.status = 'failed';
+      }
+    }
+
+    // If entire scan was failed by watchdog, return immediately
+    if (scan.status === 'failed') {
+      return res.json({ status: 'failed', error: 'Background scan timed out. Please try again.', target: scan.target, analysisId: id });
+    }
+
     const zapStatus = scan.zapResult?.status;
     const hasZapCompleted = zapStatus === 'completed' || zapStatus === 'completed_partial';
     const hasZapFailed = zapStatus === 'failed';
@@ -951,6 +991,20 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
     const hasWebCheckCompleted = webCheckStatus === 'completed' || webCheckStatus === 'completed_partial' || webCheckStatus === 'completed_with_errors';
     const hasWebCheckFailed = webCheckStatus === 'failed';
     const webCheckIsDone = hasWebCheckCompleted || hasWebCheckFailed;
+
+    // If either ZAP or WebCheck failed entirely, fail the whole scan
+    if ((hasZapFailed || hasWebCheckFailed) && !scan.refinedReport) {
+      const failedParts = [];
+      if (hasZapFailed) failedParts.push(`ZAP: ${scan.zapResult?.error || 'unknown error'}`);
+      if (hasWebCheckFailed) failedParts.push(`WebCheck: ${scan.webCheckResult?.error || 'unknown error'}`);
+      console.error(`❌ Background scan(s) failed: ${failedParts.join(', ')}. Failing entire scan.`);
+      await ScanResult.updateOne(
+        { analysisId: id },
+        { $set: { status: 'failed', updatedAt: new Date() } }
+      );
+      scan.status = 'failed';
+      return res.json({ status: 'failed', error: `Scan failed: ${failedParts.join('; ')}`, target: scan.target, analysisId: id });
+    }
 
     // If ZAP AND WebCheck are done AND we don't have Gemini report yet, generate it now
     if (zapIsDone && webCheckIsDone && !scan.refinedReport && scan.pagespeedResult && scan.observatoryResult) {
@@ -1292,8 +1346,10 @@ router.get('/download-complete-json/:id', auth, async (req, res) => {
 
       if (detailedAlertsFile && detailedAlertsFile.fileId) {
         try {
-          console.log(`📥 Fetching full ZAP alerts from GridFS for JSON export: ${detailedAlertsFile.fileId}`);
-          const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId);
+          const zapBucket = (detailedAlertsFile.filename && detailedAlertsFile.filename.includes('zap_auth'))
+            ? 'zap_auth_reports' : 'zap_reports';
+          console.log(`📥 Fetching full ZAP alerts from GridFS (${zapBucket}) for JSON export: ${detailedAlertsFile.fileId}`);
+          const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId, zapBucket);
           fullZapAlerts = JSON.parse(detailedAlertsBuffer.toString('utf-8'));
           console.log(`✅ Retrieved ${fullZapAlerts.length} full ZAP alerts from GridFS`);
         } catch (gridfsError) {

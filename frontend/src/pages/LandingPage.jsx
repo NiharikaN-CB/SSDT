@@ -14,12 +14,15 @@ const LandingPage = ({ historicalScan }) => {
 
   // Determine which component to show
   let mainContent;
-  if (!scanType) {
+  if (historicalScan) {
+    // Historical scan view - always use Hero component (works for both normal and auth scans)
+    mainContent = <Hero historicalScan={historicalScan} />;
+  } else if (!scanType) {
     // No scan type selected - show selector
     mainContent = <ScanTypeSelector />;
   } else if (scanType === 'normal') {
     // Normal scan
-    mainContent = <Hero historicalScan={historicalScan} />;
+    mainContent = <Hero />;
   } else if (scanType === 'auth') {
     // Authenticated scan
     mainContent = <AuthenticatedScanPanel />;

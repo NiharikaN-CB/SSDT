@@ -501,7 +501,7 @@ async function runAuthenticatedScanBackground(targetUrl, loginUrl, cookies, scan
         3, 2000, 'Start AJAX spider'
       );
 
-      // Wait for AJAX spider
+      // Wait for AJAX spider to complete with timeout
       const ajaxMaxIterations = 30 * 60 / 5; // 30 min / 5s intervals
       for (let i = 0; i < ajaxMaxIterations; i++) {
         await sleep(5000);
@@ -516,6 +516,7 @@ async function runAuthenticatedScanBackground(targetUrl, loginUrl, cookies, scan
           await updateProgress('ajax_spider', Math.min(uiProgress, 40), {
             message: `AJAX Spider: Discovering dynamic content...`
           });
+          console.log(`[ZAP-AUTH] AJAX spider: ${ajaxStatus}`);
         } catch (_) {
           break;
         }
@@ -641,6 +642,7 @@ async function runAuthenticatedScanBackground(targetUrl, loginUrl, cookies, scan
           message: `Testing for vulnerabilities: ${scanProgress}%`,
           alertsFound: currentAlerts
         });
+        console.log(`[ZAP-AUTH] Active scan: ${scanProgress}% | Alerts: ${currentAlerts} | Stuck: ${stuckCount}`);
       } catch (scanError) {
         console.warn(`[ZAP-AUTH] Active scan status error: ${scanError.message}`);
       }

@@ -1,5 +1,8 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+// Model name is configurable via GEMINI_MODEL env var
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
 /**
  * Get all available Gemini API keys from environment variables
  * Supports GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3, etc.
@@ -54,7 +57,7 @@ async function refineReport(vtReport, psiReport, observatoryReport, url, zapRepo
 
       // Initialize Gemini AI with current API key
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
       // Extract key data from reports
       const vtStats = vtReport?.data?.attributes?.stats || {};
@@ -281,7 +284,7 @@ async function formatReportForPdf(markdownReport) {
       console.log(`📄 Formatting report for PDF using ${keyLabel} key...`);
 
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
       const prompt = `Convert the following markdown report into clean, professionally formatted plain text suitable for a PDF document.
 
@@ -439,7 +442,7 @@ WEBCHECK ANALYSIS:
       console.log(`📊 Formatting scan data for PDF using ${keyLabel} key...`);
 
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
       const prompt = `Convert this security scan data into a structured JSON format for a professional bilingual PDF report (English and Japanese).
 
@@ -741,7 +744,7 @@ async function formatAiAnalysisForPdf(markdownReport) {
       console.log(`📝 Formatting AI analysis for PDF using ${keyLabel} key...`);
 
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
       const prompt = `Convert this security analysis report into a structured JSON format for a professional PDF document.
 
@@ -865,7 +868,7 @@ async function translateAiAnalysisToJapanese(formattedAnalysis) {
       console.log(`🌐 Translating AI analysis to Japanese using ${keyLabel} key...`);
 
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
       const prompt = `Translate this security analysis JSON from English to Japanese. Keep the exact same structure, only translate the text content.
 
@@ -966,7 +969,7 @@ async function translateToJapanese(formattedAnalysis, vulnerabilities) {
       console.log(`🌐 Translating AI analysis + vulnerabilities to Japanese using ${keyLabel} key...`);
 
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
       const prompt = `You are translating a security report from English to Japanese. You need to translate TWO things in a SINGLE response:
 
@@ -1097,7 +1100,7 @@ async function translateText(texts, targetLang) {
       console.log(`🌐 Translating ${texts.length} texts to ${langName} using ${keyLabel} key...`);
 
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
       // Build input as JSON object with numeric keys
       const inputObj = {};

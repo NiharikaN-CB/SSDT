@@ -68,7 +68,9 @@ async function generatePdfReport(scanResult) {
         if (detailedAlertsFile && detailedAlertsFile.fileId) {
             try {
                 console.log(`📥 Fetching full detailed alerts from GridFS: ${detailedAlertsFile.fileId}`);
-                const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId);
+                const bucket = (detailedAlertsFile.filename && detailedAlertsFile.filename.includes('zap_auth'))
+                    ? 'zap_auth_reports' : 'zap_reports';
+                const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId, bucket);
                 const fullDetailedAlerts = JSON.parse(detailedAlertsBuffer.toString('utf-8'));
 
                 // Replace truncated alerts with full ones
@@ -711,7 +713,9 @@ async function generateSingleLanguagePdf(scanResult, lang = 'en') {
         if (detailedAlertsFile && detailedAlertsFile.fileId) {
             try {
                 console.log(`📥 Fetching full detailed alerts from GridFS: ${detailedAlertsFile.fileId}`);
-                const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId);
+                const bucket2 = (detailedAlertsFile.filename && detailedAlertsFile.filename.includes('zap_auth'))
+                    ? 'zap_auth_reports' : 'zap_reports';
+                const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId, bucket2);
                 const fullDetailedAlerts = JSON.parse(detailedAlertsBuffer.toString('utf-8'));
 
                 zapSection.detailedAlerts = fullDetailedAlerts.map(alert => ({
@@ -836,7 +840,9 @@ async function generateZapPdf(scanResult, lang = 'en') {
         if (detailedAlertsFile && detailedAlertsFile.fileId) {
             try {
                 console.log(`📥 Fetching full detailed alerts from GridFS: ${detailedAlertsFile.fileId}`);
-                const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId);
+                const bucket3 = (detailedAlertsFile.filename && detailedAlertsFile.filename.includes('zap_auth'))
+                    ? 'zap_auth_reports' : 'zap_reports';
+                const detailedAlertsBuffer = await gridfsService.downloadFile(detailedAlertsFile.fileId, bucket3);
                 const fullDetailedAlerts = JSON.parse(detailedAlertsBuffer.toString('utf-8'));
 
                 vulnerabilities = fullDetailedAlerts.map(alert => ({

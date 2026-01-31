@@ -19,6 +19,9 @@ const ScanViewer = () => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+
     const loadScan = async () => {
       const token = localStorage.getItem('token');
       if (!token) {
@@ -29,8 +32,11 @@ const ScanViewer = () => {
       try {
         console.log(`Loading historical scan: ${analysisId}`);
         const response = await fetch(`${API_BASE}/api/vt/scan/${analysisId}`, {
-          headers: { 'x-auth-token': token }
+          headers: { 'x-auth-token': token },
+          signal: controller.signal
         });
+
+        if (cancelled) return;
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
@@ -48,17 +54,25 @@ const ScanViewer = () => {
         }
 
         const data = await response.json();
+        if (cancelled) return;
         console.log('Historical scan loaded:', data.target);
         setHistoricalScan(data);
         setLoading(false);
       } catch (err) {
+        if (err.name === 'AbortError') return;
         console.error('Load scan error:', err);
-        setError('Failed to load scan. Please try again.');
-        setLoading(false);
+        if (!cancelled) {
+          setError('Failed to load scan. Please try again.');
+          setLoading(false);
+        }
       }
     };
 
     loadScan();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [analysisId, navigate]);
 
   // Loading state

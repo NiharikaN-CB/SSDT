@@ -16,6 +16,7 @@
     text-align: center;
     transition: var(--card-transition);
     box-shadow: var(--card-shadow);
+    overflow: hidden;
 
     /* Ensure content is centered and flex for better control */
     display: flex;

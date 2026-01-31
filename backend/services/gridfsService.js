@@ -28,11 +28,11 @@ class GridFSService {
      * @param {String} filename - Filename
      * @param {Object} metadata - Additional metadata
      * @param {String} bucketName - Bucket name (default: 'zap_reports')
-     * @param {Number} timeout - Timeout in ms (default: 600000 = 10 minutes)
+     * @param {Number} timeout - Timeout in ms (default: 3600000 = 1 hour)
      * @param {Function} onProgress - Optional callback called with { percent, uploadedMB, totalMB, elapsed }
      * @returns {Promise<ObjectId>} - File ID
      */
-    async uploadFile(data, filename, metadata = {}, bucketName = 'zap_reports', timeout = 600000, onProgress = null) {
+    async uploadFile(data, filename, metadata = {}, bucketName = 'zap_reports', timeout = 3600000, onProgress = null) {
         const bucket = this.initialize(bucketName);
 
         // Convert string to buffer if needed
@@ -44,8 +44,8 @@ class GridFSService {
         const startTime = Date.now();
 
         return new Promise((resolve, reject) => {
-            // Timeout scales with file size: 10 min base + 1 min per 10MB
-            const dynamicTimeout = Math.max(timeout, 600000 + (totalSize / (10 * 1024 * 1024)) * 60000);
+            // Timeout scales with file size: 1 hour base + 1 min per 10MB
+            const dynamicTimeout = Math.max(timeout, 3600000 + (totalSize / (10 * 1024 * 1024)) * 60000);
             console.log(`[GridFS] ⏱️ Upload timeout set to ${(dynamicTimeout / 1000 / 60).toFixed(1)} minutes`);
 
             const timeoutId = setTimeout(() => {
@@ -135,10 +135,10 @@ class GridFSService {
      * Download a file from GridFS with progress logging
      * @param {ObjectId|String} fileId - File ID
      * @param {String} bucketName - Bucket name (default: 'zap_reports')
-     * @param {Number} timeout - Timeout in ms (default: 600000 = 10 minutes)
+     * @param {Number} timeout - Timeout in ms (default: 3600000 = 1 hour)
      * @returns {Promise<Buffer>} - File data
      */
-    async downloadFile(fileId, bucketName = 'zap_reports', timeout = 600000) {
+    async downloadFile(fileId, bucketName = 'zap_reports', timeout = 3600000) {
         const bucket = this.initialize(bucketName);
 
         // First get file metadata to know the size
@@ -162,8 +162,8 @@ class GridFSService {
         const startTime = Date.now();
 
         return new Promise((resolve, reject) => {
-            // Dynamic timeout based on file size
-            const dynamicTimeout = Math.max(timeout, 600000 + (totalSize / (10 * 1024 * 1024)) * 60000);
+            // Dynamic timeout based on file size: 1 hour base + 1 min per 10MB
+            const dynamicTimeout = Math.max(timeout, 3600000 + (totalSize / (10 * 1024 * 1024)) * 60000);
 
             const timeoutId = setTimeout(() => {
                 reject(new Error(`GridFS download timeout after ${(dynamicTimeout/1000/60).toFixed(1)} minutes`));

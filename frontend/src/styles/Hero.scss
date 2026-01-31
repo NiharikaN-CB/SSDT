@@ -219,6 +219,14 @@ body.dark {
   animation: pulse 1.5s ease-in-out infinite;
 }
 
+.ai-report-section {
+  overflow: hidden;
+
+  .loading-placeholder {
+    max-width: 100%;
+  }
+}
+
 .scan-progress-bar {
   background: rgba(0, 0, 0, 0.65);
   border: 2px solid var(--accent);
