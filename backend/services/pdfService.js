@@ -1112,20 +1112,13 @@ function renderZapVulnerabilities(doc, vulnerabilities, lang) {
                 .fontSize(8)
                 .fillColor(COLORS.textLight);
 
-            // Show up to 10 URLs in PDF, note if more exist
-            const urlsToShow = vuln.urls.slice(0, 10);
-            urlsToShow.forEach((url, idx) => {
+            vuln.urls.forEach((url, idx) => {
                 // Check for page break
                 if (doc.y > 720) {
                     doc.addPage();
                 }
                 doc.text(`  ${idx + 1}. ${url}`, { width: 480 });
             });
-
-            if (vuln.urls.length > 10) {
-                doc.fillColor(COLORS.info)
-                    .text(`  ... ${isJapanese ? 'さらに' : 'and'} ${vuln.urls.length - 10} ${isJapanese ? '件のURL' : 'more URLs'}`, { width: 480 });
-            }
 
             doc.moveDown(0.3);
         }
