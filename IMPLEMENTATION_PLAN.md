@@ -197,12 +197,18 @@ Company {
 - `GET /profile` - Include company info and plan details
 - Remove or update prototype upgrade/downgrade endpoints
 
+**Modify: `backend/server.js`**
+- Register admin routes: `app.use('/api/admin', apiLimiter, require('./routes/admin'))` (follows pattern at lines 66-79)
+
 ### Frontend Changes
 
 **Create: `frontend/src/pages/AdminPanel.jsx`**
 - Company dashboard: member list, usage stats, plan info
 - Invite member form
 - Only visible to users with `role: 'admin'`
+
+**Modify: `frontend/src/App.js`**
+- Add route: `<Route path="/admin" element={<AdminPanel />} />` (follows pattern at lines 40-48)
 
 **Modify: `frontend/src/pages/Profile.jsx`** (or wherever profile is rendered)
 - Show company name, current plan, usage vs limits
@@ -339,23 +345,35 @@ Trial 1: 1 scan, High only (same filtering as Light plan). Trial 2: 2 scans, all
 
 ## TASK 6: Usage Tracking Dashboard
 
-### Why
-Companies need to see their scan usage, history, and remaining allowances.
+### Questionable Value
+Most of what this task provides is already covered by Task 4 (scan limit display before scanning). The "last 6 months" history claim is **broken by design** - `ScanResult` has a 7-day TTL (`createdAt` index with `expires: 604800` in ScanResult.js line 71), so scan data auto-deletes after 7 days. Historical usage beyond 7 days requires a separate `UsageLog` collection.
 
-### Backend Changes
+Consider: Skip this task entirely, or reduce scope to just a "current month usage" widget on the Profile page (which Task 4 already partially covers). Only implement if customers explicitly request a dedicated usage page.
+
+### Backend Changes (if implementing)
+
+**Create: `backend/models/UsageLog.js`** (needed because ScanResult has 7-day TTL)
+- Log each scan start: `{ companyId, userId, target, scanType, createdAt }`
+- No TTL - persists for billing/history purposes
 
 **Create: `backend/routes/usage.js`**
-- `GET /usage/summary` - Current month usage vs limits
-- `GET /usage/history` - Monthly scan counts (last 6 months)
+- `GET /usage/summary` - Current month usage vs limits (queries UsageLog, not ScanResult)
+- `GET /usage/history` - Monthly scan counts (last 6 months, from UsageLog)
 - `GET /usage/targets` - List of scanned targets with scan counts
 
-### Frontend Changes
+**Modify: `backend/server.js`**
+- Register usage routes: `app.use('/api/usage', apiLimiter, require('./routes/usage'))` (follows pattern at lines 66-79)
+
+### Frontend Changes (if implementing)
 
 **Create: `frontend/src/pages/UsageDashboard.jsx`**
 - Progress bars: scans used vs limit, targets used vs limit
 - Monthly usage chart (pure CSS, no chart libraries)
 - Target list with scan counts
 - Plan info with upgrade CTA if approaching limits
+
+**Modify: `frontend/src/App.js`**
+- Add route: `<Route path="/usage" element={<UsageDashboard />} />` (follows pattern at lines 40-48)
 
 ---
 
@@ -374,12 +392,18 @@ Company admins need to manage members, view usage, manage settings.
 - Usage stats per member
 - Plan management (view, not change - that's billing)
 
+**Modify: `backend/server.js`**
+- Register admin routes: `app.use('/api/admin', apiLimiter, require('./routes/admin'))` (follows pattern at lines 66-79)
+
 ### Frontend Changes
 
 **Create: `frontend/src/pages/AdminPanel.jsx`**
 - Member list with invite/remove
 - Per-member scan stats
 - Company-wide usage overview
+
+**Modify: `frontend/src/App.js`**
+- Add route: `<Route path="/admin" element={<AdminPanel />} />` (follows pattern at lines 40-48)
 
 ---
 
@@ -390,7 +414,7 @@ Company admins need to manage members, view usage, manage settings.
 3. **TASK 3: Severity Gating** - Highest-value differentiator between plans
 4. **TASK 4: Scan Limits** - Enforce plan boundaries
 5. **TASK 5: Trial Plans** - Enable sales pipeline
-6. **TASK 6: Usage Dashboard** - Customer-facing visibility
+6. **TASK 6: Usage Dashboard** - Questionable value (see notes), consider skipping or reducing scope
 7. **TASK 7: Admin Panel** - Company self-service
 
 Tasks 3, 4, and 5 all depend on Task 2 (Company model). Task 1 is independent and can be done anytime.
@@ -401,13 +425,13 @@ Tasks 3, 4, and 5 all depend on Task 2 (Company model). Task 1 is independent an
 
 ### Files that need changes for MOST tasks:
 - `backend/models/User.js` - Add companyId, role
-- `backend/models/ScanResult.js` - Remove vtResult (Task 1)
+- `backend/models/ScanResult.js` - Remove vtResult (Task 1). Note: has 7-day TTL on createdAt
 - `backend/middleware/auth.js` - Attach company/plan info
 - `backend/routes/virustotalRoutes.js` - Scan orchestration (keep filename as-is)
 - `backend/routes/zapAuthRoutes.js` - Auth scan orchestration
 - `backend/services/geminiService.js` - AI prompt and PDF data formatting
-- `backend/services/pdfService.js` - PDF generation
-- `backend/server.js` - Route registration, env validation
+- `backend/server.js` - Route registration (lines 66-79), env validation (line 15)
+- `frontend/src/App.js` - Frontend route registration (lines 40-48)
 - `frontend/src/components/Hero.jsx` - Normal scan UI
 - `frontend/src/components/AuthenticatedScanPanel.jsx` - Auth scan UI
 - `frontend/src/pages/ScanViewer.jsx` - Historical scan loading
@@ -415,13 +439,14 @@ Tasks 3, 4, and 5 all depend on Task 2 (Company model). Task 1 is independent an
 
 ### New files to create:
 - `backend/models/Company.js` (Task 2)
+- `backend/models/UsageLog.js` (Task 6 - needed because ScanResult has 7-day TTL)
 - `backend/middleware/planLimits.js` (Task 4)
 - `backend/middleware/severityFilter.js` (Task 3)
 - `backend/middleware/adminAuth.js` (Task 7)
-- `backend/routes/admin.js` (Task 7)
+- `backend/routes/admin.js` (Tasks 2, 7)
 - `backend/routes/usage.js` (Task 6)
 - `frontend/src/pages/UsageDashboard.jsx` (Task 6)
-- `frontend/src/pages/AdminPanel.jsx` (Task 7)
+- `frontend/src/pages/AdminPanel.jsx` (Tasks 2, 7)
 
 ### Files to DELETE:
 - `backend/services/virustotalService.js` (Task 1)
