@@ -299,11 +299,12 @@ async function detectLoginFields(loginUrl) {
     if (forms.length === 0) {
       warnings.push('No login forms detected on this page.');
     } else {
-      const primaryForm = forms[0];
-      if (!primaryForm.usernameField) {
+      const hasAnyUsername = forms.some(f => f.usernameField);
+      const hasAnyPassword = forms.some(f => f.passwordField);
+      if (!hasAnyUsername) {
         warnings.push('Could not identify a username/email field. You may need to select it manually.');
       }
-      if (!primaryForm.passwordField) {
+      if (!hasAnyPassword) {
         warnings.push('Could not identify a password field. This may not be a login page.');
       }
     }

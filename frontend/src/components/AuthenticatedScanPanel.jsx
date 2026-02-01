@@ -210,6 +210,17 @@ const AuthenticatedScanPanel = () => {
         return;
       }
 
+      // Prefer the form that has a password field (language-agnostic: type="password" is universal)
+      // Only reorders when forms[0] lacks a password field (e.g. search bar before login form)
+      // If forms[0] already has password field (all normal cases), this is a no-op
+      if (data.forms && data.forms.length > 1) {
+        const passwordFormIndex = data.forms.findIndex(f => f.passwordField);
+        if (passwordFormIndex > 0) {
+          const promoted = data.forms[passwordFormIndex];
+          data.forms = [promoted, ...data.forms.filter((_, i) => i !== passwordFormIndex)];
+        }
+      }
+
       setDetectedFields(data);
 
       // Auto-select fields from first form
