@@ -285,30 +285,42 @@ function filterBySeverity(scanResult, allowedLevels) {
 ### Why
 Each plan has limits: scans per target per month, max targets per month.
 
+### Critical: ScanResult Has 7-Day TTL
+`ScanResult.createdAt` has `expires: 604800` (7 days). Scan documents auto-delete after 7 days. This means you **cannot** count scans-per-month by querying ScanResult - a scan from day 1 would be deleted by day 8, making the count wrong mid-month. A separate `UsageLog` collection is required for accurate limit enforcement.
+
 ### Backend Changes
+
+**Create: `backend/models/UsageLog.js`**
+```
+UsageLog {
+  companyId: ObjectId (ref: 'Company', required),
+  userId: ObjectId (ref: 'User', required),
+  target: String (required),       // the scanned URL
+  scanType: String (enum: ['normal', 'authenticated']),
+  createdAt: Date (default: Date.now, indexed)
+  // NO TTL - persists permanently for billing/limit tracking
+}
+```
+- Insert one document every time a scan starts (in the scan endpoint, after limit check passes)
+- Lightweight: no scan results stored, just the fact that a scan happened
 
 **Create: `backend/middleware/scanLimits.js`**
 ```javascript
 // Before starting any scan:
-// 1. Count unique targets this month for the company
-// 2. Count scans for this specific target this month
-// 3. Compare against company.maxTargetsPerMonth and company.maxScansPerTarget
-// 4. Return 403 with clear error if limit exceeded
+// 1. Query UsageLog (NOT ScanResult) for this company this month
+// 2. Count unique targets this month for the company
+// 3. Count scans for this specific target this month
+// 4. Compare against company.maxTargetsPerMonth and company.maxScansPerTarget
+// 5. Return 403 with clear error if limit exceeded
 ```
 
 **Modify: `backend/routes/virustotalRoutes.js`**
 - Add scanLimits middleware to `POST /combined-url-scan` endpoint (line ~611)
+- After limit check passes, insert UsageLog entry
 
 **Modify: `backend/routes/zapAuthRoutes.js`**
 - Add scanLimits middleware to `POST /scan` endpoint (line ~184)
-
-**Create: Usage tracking aggregation query**
-```javascript
-// MongoDB aggregation on ScanResult collection:
-// Group by target, count scans per target this month
-// Count distinct targets this month
-// Compare against plan limits
-```
+- After limit check passes, insert UsageLog entry
 
 ### Frontend Changes
 
@@ -343,28 +355,22 @@ Trial 1: 1 scan, High only (same filtering as Light plan). Trial 2: 2 scans, all
 
 ---
 
-## TASK 6: Usage Tracking Dashboard
+## TASK 6: Usage Tracking Dashboard (Optional)
 
-### Questionable Value
-Most of what this task provides is already covered by Task 4 (scan limit display before scanning). The "last 6 months" history claim is **broken by design** - `ScanResult` has a 7-day TTL (`createdAt` index with `expires: 604800` in ScanResult.js line 71), so scan data auto-deletes after 7 days. Historical usage beyond 7 days requires a separate `UsageLog` collection.
+### Low Priority
+Task 4 already creates `UsageLog` and displays remaining scans/targets before each scan. This task only adds a dedicated page with historical charts. Skip unless customers explicitly request it.
 
-Consider: Skip this task entirely, or reduce scope to just a "current month usage" widget on the Profile page (which Task 4 already partially covers). Only implement if customers explicitly request a dedicated usage page.
+### Backend Changes
 
-### Backend Changes (if implementing)
-
-**Create: `backend/models/UsageLog.js`** (needed because ScanResult has 7-day TTL)
-- Log each scan start: `{ companyId, userId, target, scanType, createdAt }`
-- No TTL - persists for billing/history purposes
-
-**Create: `backend/routes/usage.js`**
-- `GET /usage/summary` - Current month usage vs limits (queries UsageLog, not ScanResult)
-- `GET /usage/history` - Monthly scan counts (last 6 months, from UsageLog)
+**Create: `backend/routes/usage.js`** (queries UsageLog created in Task 4)
+- `GET /usage/summary` - Current month usage vs limits
+- `GET /usage/history` - Monthly scan counts (last 6 months)
 - `GET /usage/targets` - List of scanned targets with scan counts
 
 **Modify: `backend/server.js`**
 - Register usage routes: `app.use('/api/usage', apiLimiter, require('./routes/usage'))` (follows pattern at lines 66-79)
 
-### Frontend Changes (if implementing)
+### Frontend Changes
 
 **Create: `frontend/src/pages/UsageDashboard.jsx`**
 - Progress bars: scans used vs limit, targets used vs limit
