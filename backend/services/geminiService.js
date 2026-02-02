@@ -46,6 +46,14 @@ async function refineReport(vtReport, psiReport, observatoryReport, url, zapRepo
   }
 
   let lastError = null;
+  const MAX_NETWORK_RETRIES = 3;
+
+  for (let networkRetry = 0; networkRetry < MAX_NETWORK_RETRIES; networkRetry++) {
+    if (networkRetry > 0) {
+      const delay = networkRetry * 5000; // 5s, 10s
+      console.log(`🔄 Network retry ${networkRetry}/${MAX_NETWORK_RETRIES - 1} - waiting ${delay / 1000}s before retrying all keys...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
 
   // Try each API key until one succeeds
   for (let i = 0; i < apiKeys.length; i++) {
@@ -249,7 +257,24 @@ IMPORTANT FORMATTING INSTRUCTIONS:
     }
   }
 
-  // All API keys failed, throw the last error
+  // All keys failed this round - check if it's a network error worth retrying
+  const isNetworkError = lastError?.message?.includes('fetch failed') ||
+    lastError?.message?.includes('ECONNREFUSED') ||
+    lastError?.message?.includes('ETIMEDOUT') ||
+    lastError?.message?.includes('ENOTFOUND') ||
+    lastError?.message?.includes('network');
+  const isAuthError = lastError?.message?.includes('API key') ||
+    lastError?.message?.includes('401') || lastError?.message?.includes('403');
+
+  if (isNetworkError && !isAuthError && networkRetry < MAX_NETWORK_RETRIES - 1) {
+    console.warn(`⚠️ All keys failed with network error, will retry...`);
+    continue; // retry the outer loop
+  }
+
+  break; // non-network error or last retry, stop
+  } // end of networkRetry loop
+
+  // All API keys and retries failed, throw the last error
   console.error('💥 All Gemini API keys exhausted');
 
   if (lastError?.message?.includes('API key') || lastError?.message?.includes('401') || lastError?.message?.includes('403')) {

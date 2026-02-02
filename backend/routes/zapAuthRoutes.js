@@ -28,6 +28,9 @@ const { runUrlScan } = require('../services/urlscanService');
 const { startAsyncWebCheckScan, getFullResults } = require('../services/webCheckService');
 const { refineReport } = require('../services/geminiService');
 
+// In-memory lock to prevent parallel Gemini AI report calls for the same scan
+const geminiInProgress = new Set();
+
 // ============================================================================
 // IN-MEMORY AUTH SESSION STORE
 // Stores session cookies from successful login tests, keyed by tempSessionId.
@@ -441,57 +444,64 @@ router.get('/status/:scanId', auth, async (req, res) => {
     }
 
     if (authZapDone && webCheckDone && !scan.refinedReport && scan.pagespeedResult && scan.observatoryResult) {
-      console.log('[ZAP-AUTH] All scans finished. Generating Gemini AI report...');
-      try {
-        const freshScan = await ScanResult.findOne({ analysisId: scanId, userId: req.user.id });
-        const psiReport = freshScan.pagespeedResult?.error ? null : freshScan.pagespeedResult;
-        const observatoryReport = freshScan.observatoryResult?.error ? null : freshScan.observatoryResult;
-        const urlscanReport = freshScan.urlscanResult?.error ? null : freshScan.urlscanResult;
+      if (geminiInProgress.has(scanId)) {
+        console.log('[ZAP-AUTH] Gemini report already being generated for this scan, skipping...');
+      } else {
+        geminiInProgress.add(scanId);
+        console.log('[ZAP-AUTH] All scans finished. Generating Gemini AI report...');
+        try {
+          const freshScan = await ScanResult.findOne({ analysisId: scanId, userId: req.user.id });
+          const psiReport = freshScan.pagespeedResult?.error ? null : freshScan.pagespeedResult;
+          const observatoryReport = freshScan.observatoryResult?.error ? null : freshScan.observatoryResult;
+          const urlscanReport = freshScan.urlscanResult?.error ? null : freshScan.urlscanResult;
 
-        // Use auth ZAP data for the report
-        const authZapCompleted = freshScan.authScanResult?.status === 'completed';
-        const zapReport = authZapCompleted ? {
-          site: freshScan.target,
-          riskCounts: freshScan.authScanResult.riskCounts,
-          alerts: freshScan.authScanResult.alerts,
-          totalAlerts: freshScan.authScanResult.totalAlerts,
-          totalOccurrences: freshScan.authScanResult.totalOccurrences
-        } : null;
+          // Use auth ZAP data for the report
+          const authZapCompleted = freshScan.authScanResult?.status === 'completed';
+          const zapReport = authZapCompleted ? {
+            site: freshScan.target,
+            riskCounts: freshScan.authScanResult.riskCounts,
+            alerts: freshScan.authScanResult.alerts,
+            totalAlerts: freshScan.authScanResult.totalAlerts,
+            totalOccurrences: freshScan.authScanResult.totalOccurrences
+          } : null;
 
-        // WebCheck data
-        let webCheckReport = null;
-        const freshWebCheck = freshScan.webCheckResult;
-        const wcCompleted = freshWebCheck?.status === 'completed' || freshWebCheck?.status === 'completed_partial' || freshWebCheck?.status === 'completed_with_errors';
-        if (wcCompleted) {
-          webCheckReport = await getFullResults(freshWebCheck);
+          // WebCheck data
+          let webCheckReport = null;
+          const freshWebCheck = freshScan.webCheckResult;
+          const wcCompleted = freshWebCheck?.status === 'completed' || freshWebCheck?.status === 'completed_partial' || freshWebCheck?.status === 'completed_with_errors';
+          if (wcCompleted) {
+            webCheckReport = await getFullResults(freshWebCheck);
+          }
+
+          const aiReport = await refineReport(
+            freshScan.vtResult,
+            psiReport,
+            observatoryReport,
+            freshScan.target,
+            zapReport,
+            urlscanReport,
+            webCheckReport
+          );
+
+          await ScanResult.updateOne(
+            { analysisId: scanId },
+            { $set: { refinedReport: aiReport, status: 'completed', updatedAt: new Date() } }
+          );
+          scan.refinedReport = aiReport;
+          scan.status = 'completed';
+          console.log('[ZAP-AUTH] Gemini AI report generated!');
+        } catch (geminiError) {
+          console.error('[ZAP-AUTH] Gemini report failed:', geminiError.message);
+          const fallback = `AI analysis temporarily unavailable. Error: ${geminiError.message}`;
+          await ScanResult.updateOne(
+            { analysisId: scanId },
+            { $set: { refinedReport: fallback, status: 'completed', updatedAt: new Date() } }
+          );
+          scan.refinedReport = fallback;
+          scan.status = 'completed';
+        } finally {
+          geminiInProgress.delete(scanId);
         }
-
-        const aiReport = await refineReport(
-          freshScan.vtResult,
-          psiReport,
-          observatoryReport,
-          freshScan.target,
-          zapReport,
-          urlscanReport,
-          webCheckReport
-        );
-
-        await ScanResult.updateOne(
-          { analysisId: scanId },
-          { $set: { refinedReport: aiReport, status: 'completed', updatedAt: new Date() } }
-        );
-        scan.refinedReport = aiReport;
-        scan.status = 'completed';
-        console.log('[ZAP-AUTH] Gemini AI report generated!');
-      } catch (geminiError) {
-        console.error('[ZAP-AUTH] Gemini report failed:', geminiError.message);
-        const fallback = `AI analysis temporarily unavailable. Error: ${geminiError.message}`;
-        await ScanResult.updateOne(
-          { analysisId: scanId },
-          { $set: { refinedReport: fallback, status: 'completed', updatedAt: new Date() } }
-        );
-        scan.refinedReport = fallback;
-        scan.status = 'completed';
       }
     } else if (authZapDone && (webCheckDone || !scan.webCheckResult) && !scan.refinedReport) {
       // WebCheck may not have started or both done but missing fast scans

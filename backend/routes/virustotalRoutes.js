@@ -17,6 +17,9 @@ const { combinedScanLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
+// In-memory lock to prevent parallel Gemini AI report calls for the same scan
+const geminiInProgress = new Set();
+
 // Configure multer
 const upload = multer({
   dest: 'uploads/',
@@ -1008,108 +1011,116 @@ router.get('/combined-analysis/:id', auth, async (req, res) => {
 
     // If ZAP AND WebCheck are done AND we don't have Gemini report yet, generate it now
     if (zapIsDone && webCheckIsDone && !scan.refinedReport && scan.pagespeedResult && scan.observatoryResult) {
-      console.log('🤖 ZAP and WebCheck scans finished! Generating Gemini AI report with ALL scan data...');
+      if (geminiInProgress.has(id)) {
+        console.log('🤖 Gemini report already being generated for this scan, skipping...');
+      } else {
+        geminiInProgress.add(id);
+        console.log('🤖 ZAP and WebCheck scans finished! Generating Gemini AI report with ALL scan data...');
 
-      // CRITICAL: Fresh refetch to ensure we have the absolute latest data
-      // This prevents race conditions where background scans completed after our last read
-      const freshScan = await ScanResult.findOne({ analysisId: id, userId: req.user.id });
-      if (!freshScan) {
-        console.error('❌ Scan not found during Gemini generation');
-        return res.status(404).json({ error: 'Scan not found' });
-      }
-
-      // Use fresh data for Gemini generation
-      const freshZapResult = freshScan.zapResult;
-      const freshWebCheckResult = freshScan.webCheckResult;
-
-      console.log(`📊 Fresh data check - ZAP status: ${freshZapResult?.status}, WebCheck status: ${freshWebCheckResult?.status}`);
-      console.log(`📊 WebCheck fullResults exists: ${!!freshWebCheckResult?.fullResults}, keys: ${freshWebCheckResult?.fullResults ? Object.keys(freshWebCheckResult.fullResults).length : 0}`);
-
-      if (freshZapResult?.status === 'completed_partial') {
-        console.log('⚠️ Note: ZAP scan completed with partial results');
-      }
-      if (freshWebCheckResult?.status === 'completed_partial' || freshWebCheckResult?.status === 'completed_with_errors') {
-        console.log('⚠️ Note: WebCheck scan completed with partial results or errors');
-      }
-
-      try {
-        // Prepare data for Gemini (with or without ZAP results depending on success)
-        const psiReport = freshScan.pagespeedResult?.error ? null : freshScan.pagespeedResult;
-        const observatoryReport = freshScan.observatoryResult?.error ? null : freshScan.observatoryResult;
-        const urlscanReport = freshScan.urlscanResult?.error ? null : freshScan.urlscanResult;
-
-        // Include ZAP data if scan completed (fully or partially)
-        const freshZapStatus = freshZapResult?.status;
-        const freshZapCompleted = freshZapStatus === 'completed' || freshZapStatus === 'completed_partial';
-        const zapReport = freshZapCompleted ? {
-          site: freshScan.target,
-          riskCounts: freshZapResult.riskCounts,
-          alerts: freshZapResult.alerts,
-          totalAlerts: freshZapResult.totalAlerts,
-          totalOccurrences: freshZapResult.totalOccurrences
-        } : null;
-
-        // Include WebCheck data if scan completed (fully or partially)
-        const freshWebCheckStatus = freshWebCheckResult?.status;
-        const freshWebCheckCompleted = freshWebCheckStatus === 'completed' || freshWebCheckStatus === 'completed_partial' || freshWebCheckStatus === 'completed_with_errors';
-
-        // Use getFullResults to handle both inline and GridFS storage
-        let webCheckReport = null;
-        if (freshWebCheckCompleted) {
-          webCheckReport = await getFullResults(freshWebCheckResult);
-          if (!webCheckReport) {
-            console.warn('⚠️ WebCheck marked complete but could not retrieve results');
-          } else {
-            console.log(`📊 WebCheck results retrieved: ${Object.keys(webCheckReport).length} scan types`);
-          }
+        // CRITICAL: Fresh refetch to ensure we have the absolute latest data
+        // This prevents race conditions where background scans completed after our last read
+        const freshScan = await ScanResult.findOne({ analysisId: id, userId: req.user.id });
+        if (!freshScan) {
+          geminiInProgress.delete(id);
+          console.error('❌ Scan not found during Gemini generation');
+          return res.status(404).json({ error: 'Scan not found' });
         }
 
-        // Generate AI report with all available data
-        const aiReport = await refineReport(
-          freshScan.vtResult,
-          psiReport,
-          observatoryReport,
-          freshScan.target,
-          zapReport,
-          urlscanReport,
-          webCheckReport
-        );
+        // Use fresh data for Gemini generation
+        const freshZapResult = freshScan.zapResult;
+        const freshWebCheckResult = freshScan.webCheckResult;
 
-        // Use atomic update for final completion to avoid race conditions
-        await ScanResult.updateOne(
-          { analysisId: id },
-          {
-            $set: {
-              refinedReport: aiReport,
-              status: 'completed',
-              updatedAt: new Date()
+        console.log(`📊 Fresh data check - ZAP status: ${freshZapResult?.status}, WebCheck status: ${freshWebCheckResult?.status}`);
+        console.log(`📊 WebCheck fullResults exists: ${!!freshWebCheckResult?.fullResults}, keys: ${freshWebCheckResult?.fullResults ? Object.keys(freshWebCheckResult.fullResults).length : 0}`);
+
+        if (freshZapResult?.status === 'completed_partial') {
+          console.log('⚠️ Note: ZAP scan completed with partial results');
+        }
+        if (freshWebCheckResult?.status === 'completed_partial' || freshWebCheckResult?.status === 'completed_with_errors') {
+          console.log('⚠️ Note: WebCheck scan completed with partial results or errors');
+        }
+
+        try {
+          // Prepare data for Gemini (with or without ZAP results depending on success)
+          const psiReport = freshScan.pagespeedResult?.error ? null : freshScan.pagespeedResult;
+          const observatoryReport = freshScan.observatoryResult?.error ? null : freshScan.observatoryResult;
+          const urlscanReport = freshScan.urlscanResult?.error ? null : freshScan.urlscanResult;
+
+          // Include ZAP data if scan completed (fully or partially)
+          const freshZapStatus = freshZapResult?.status;
+          const freshZapCompleted = freshZapStatus === 'completed' || freshZapStatus === 'completed_partial';
+          const zapReport = freshZapCompleted ? {
+            site: freshScan.target,
+            riskCounts: freshZapResult.riskCounts,
+            alerts: freshZapResult.alerts,
+            totalAlerts: freshZapResult.totalAlerts,
+            totalOccurrences: freshZapResult.totalOccurrences
+          } : null;
+
+          // Include WebCheck data if scan completed (fully or partially)
+          const freshWebCheckStatus = freshWebCheckResult?.status;
+          const freshWebCheckCompleted = freshWebCheckStatus === 'completed' || freshWebCheckStatus === 'completed_partial' || freshWebCheckStatus === 'completed_with_errors';
+
+          // Use getFullResults to handle both inline and GridFS storage
+          let webCheckReport = null;
+          if (freshWebCheckCompleted) {
+            webCheckReport = await getFullResults(freshWebCheckResult);
+            if (!webCheckReport) {
+              console.warn('⚠️ WebCheck marked complete but could not retrieve results');
+            } else {
+              console.log(`📊 WebCheck results retrieved: ${Object.keys(webCheckReport).length} scan types`);
             }
           }
-        );
-        // Update local scan object for response
-        scan.refinedReport = aiReport;
-        scan.status = 'completed';
 
-        console.log('✅ Gemini AI report generated with all scan data!');
-        console.log(`   Included ZAP data: ${zapReport ? 'Yes' : 'No (scan not completed)'}`);
-        console.log(`   Included WebCheck data: ${webCheckReport ? `Yes (${Object.keys(webCheckReport).length} scan types)` : 'No (fullResults missing)'}`);
-      } catch (geminiError) {
-        console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
-        // Store fallback message using atomic update
-        const fallbackReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
-        await ScanResult.updateOne(
-          { analysisId: id },
-          {
-            $set: {
-              refinedReport: fallbackReport,
-              status: 'completed',
-              updatedAt: new Date()
+          // Generate AI report with all available data
+          const aiReport = await refineReport(
+            freshScan.vtResult,
+            psiReport,
+            observatoryReport,
+            freshScan.target,
+            zapReport,
+            urlscanReport,
+            webCheckReport
+          );
+
+          // Use atomic update for final completion to avoid race conditions
+          await ScanResult.updateOne(
+            { analysisId: id },
+            {
+              $set: {
+                refinedReport: aiReport,
+                status: 'completed',
+                updatedAt: new Date()
+              }
             }
-          }
-        );
-        // Update local scan object for response
-        scan.refinedReport = fallbackReport;
-        scan.status = 'completed';
+          );
+          // Update local scan object for response
+          scan.refinedReport = aiReport;
+          scan.status = 'completed';
+
+          console.log('✅ Gemini AI report generated with all scan data!');
+          console.log(`   Included ZAP data: ${zapReport ? 'Yes' : 'No (scan not completed)'}`);
+          console.log(`   Included WebCheck data: ${webCheckReport ? `Yes (${Object.keys(webCheckReport).length} scan types)` : 'No (fullResults missing)'}`);
+        } catch (geminiError) {
+          console.error('⚠️  Gemini AI report generation failed:', geminiError.message);
+          // Store fallback message using atomic update
+          const fallbackReport = `AI analysis temporarily unavailable due to high demand. Please try again later.\n\nError: ${geminiError.message}`;
+          await ScanResult.updateOne(
+            { analysisId: id },
+            {
+              $set: {
+                refinedReport: fallbackReport,
+                status: 'completed',
+                updatedAt: new Date()
+              }
+            }
+          );
+          // Update local scan object for response
+          scan.refinedReport = fallbackReport;
+          scan.status = 'completed';
+        } finally {
+          geminiInProgress.delete(id);
+        }
       }
     } else if (zapIsDone && webCheckIsDone && !scan.refinedReport) {
       // FALLBACK: Both ZAP and WebCheck done but can't generate AI report (missing PageSpeed/Observatory)
